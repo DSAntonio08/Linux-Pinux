@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 
 const unsigned long REG_PORT_G = 0x02000120; // Adress of the Register for GPIO-Port G
 const unsigned long UART_SEND_REGISTER = 0x02500400;
@@ -19,7 +19,7 @@ static inline __attribute__((__always_inline__)) void write32(unsigned long addr
 int main(void) {
     // gpio_init();
     uart_init();
-    // Merksatz: Bei addr + 0x0c geht es 12 Bytes weiter zu einem anderen Register. Bei 1 << 7 geht es um Bit 7 innerhalb eines Registerwerts.
+    // addr + 0x0c means go on 12bytes to another register; 1 << 7 means go 7Bit in 1 Register
     while (1) {
         uart_transmit('H');
         uart_transmit('E');
@@ -36,15 +36,22 @@ int main(void) {
 }
 
 void uart_init(void) {
+    // Set ADPB1 (Advanced Peripheral Bus 1) to 24MHz for sure
+
+    unsigned long addr = 0x02001524;
+    uint32_t val = read32(addr);
+    val &= ~((0x3u << 24) | (0x3u << 8) | 0x1fu);
+    write32(addr, val);
+
     // Configure UART1/PG6,7 to Tx and Rx
 
-    unsigned long addr = REG_PORT_G;
-    uint32_t val = read32(addr);
+    addr = REG_PORT_G;
+    val = read32(addr);
     uint32_t mask = (0xf << 24); // set the 4bit Value of PG6 to 1111
-    mask = ~mask;                 // change all 1s to 0s
-    val = val & mask;             // use a AND-Gate to bring the mask over the existing 4bit config in PG6
-    val |= (2 << 24);             // short-form, but does the same. left-shift the 2 by 24 (6 times 4bit) and then use a OR to write 0010
-    write32(addr, val);           // actually WRITE the new config Exact Same thing for PG7
+    mask = ~mask;                // change all 1s to 0s
+    val = val & mask;            // use a AND-Gate to bring the mask over the existing 4bit config in PG6
+    val |= (2 << 24);            // short-form, but does the same. left-shift the 2 by 24 (6 times 4bit) and then use a OR to write 0010
+    write32(addr, val);          // actually WRITE the new config Exact Same thing for PG7
     val = read32(addr);
     val &= ~(0xfu << 28); // 28 instead of 24 bc of +4bit, u js means unsigned
     val |= (2 << 28);
