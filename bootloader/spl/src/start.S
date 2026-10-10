@@ -21,6 +21,18 @@
 @ Mark "start" as a function symbol; this does not generate a CPU instruction
 .type start, %function
 
+@ eGON.BT0 boot header, 48 bytes (0x30), read by the BROM
+@ offset  size  field
+@ 0x00    4     branch to spl_entry (skips the header)
+@ 0x04    8     magic "eGON.BT0"
+@ 0x0C    4     checksum (patched later by a packaging tool)
+@ 0x10    4     image size (spl_size, from the linker)
+@ 0x14    4     header size (0x30)
+@ 0x18    4     header version "3000"
+@ 0x1C    4     return value
+@ 0x20    4     run address
+@ 0x24    4     eGON version
+@ 0x28    8     platform information
 start: 
 
     @ jump to spl_entry, we do this to skip the header which only contains Information for the Boot-ROM which is already over atp 
@@ -39,7 +51,6 @@ start:
     .long 0x30
     
     @ defines the format/protocol (that every1 understands the information the same)
-    @ Header layout: 4 bytes branch, 8 bytes signature, 4 bytes checksum, 4 bytes image size
     .byte '3', '0', '0', '0'
     
     @ I cannot figure what the Boot-ROM uses these adresses for, but AWBoot writes em so here they r
@@ -51,7 +62,7 @@ start:
 
 spl_entry:
     @ Copy CPSR (the MetaData abt the CPU's current operating Mode) to the register r0, we then change some values in the copy and later move it back to CPSR
-    mrs r0, cpsr /* msr --> move to Status Register */
+    mrs r0, cpsr /* msr --> move from Status Register */
 
     @ we put the mask into r0, and that way clear r0's bottom 5 bits (src, destination, mask )
     bic r0,r0, #CPU_MODE_MASK
@@ -60,7 +71,7 @@ spl_entry:
     orr r0,r0, #CPU_MODE_SUPERVISOR /* We use # to geet the value */
     orr r0, r0, #(ARMV7_IRQ_MASK | ARMV7_FIQ_MASK) /* block both Interrupt Request & Fast Interrupt Request */
     msr cpsr_c, r0 /* save modified back in CPSR_control */
-    setend le /* set little endian - means the most left byte is the least significant */
+    setend le /* set little endian - means the least significant byte is stored at the lowest adress */
     
     @ load the vector table adress into r0
     ldr r0, =vector_handler /* = means Adress Value*/
@@ -83,7 +94,22 @@ spl_entry:
     
     @ jump with return, CoProcessor 15
     bl cpu_init_cp15
-    @ Stay here until the next startup block is implemented
+    
+    @ stack pointer pointing to the stack top, from linker
+    ldr sp, =stack_top
+    
+    ldr r0, =bss_start
+    ldr r1, =bss_end
+    mov r2, #0
+
+bss_loop:
+    cmp r0, r1
+    bhs bss_done
+    str r2, [r0], #4
+    b bss_loop
+
+bss_done:
+    bl main
     b .
 
 .balign 32
