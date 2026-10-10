@@ -35,6 +35,7 @@
 *.i*86
 *.x86_64
 *.hex
+*.bin
 
 # Debug files
 *.dSYM/
@@ -59,8 +60,10 @@ dkms.conf
 
 # My own stuff
 .clang-format
-eigenPlan.tex
 OlivePi_Linux-Plan.md
 Roadmap-Claude.md
 Roadmap-Gemini.md
-T113-S3_User_manual.pdf
+*.md
+*.txt
+*.tex
+*.pdf
