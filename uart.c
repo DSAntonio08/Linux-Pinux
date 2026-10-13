@@ -1,3 +1,22 @@
+/*
+ * uart.c - first-light test: sends "HELLO WORLD" over UART1 forever
+ *
+ * Runs on the board, freestanding (no libc!), started by start.S via main()
+ *
+ * Hardware: UART1 on PG6 (TX) / PG7 (RX), 3.3V levels (VCC-PG = 3V3)
+ * Setting:  115200 baud, 8N1, polling (no interrupts)
+ *
+ * What it does:
+ *   1. APB1 clock -> 24 MHz source, no dividers
+ *   2. PG6/PG7 -> function 2 (UART1)
+ *   3. open UART1 clock gate + take it out of reset (UART_BGR_REG, p.118-119)
+ *   4. UART setup: interrupts off, FIFO on, divisor 13 (24 MHz / 16 / 13 = 115385 baud, +0.16%), 8N1
+ *   5. loop: wait until TX FIFO has space, write the char
+ *
+ * Terminal: screen /dev/tty.usbserial-XXXX 115200
+ */
+
+
 #include <stdint.h>
 #include "bootloader/spl/include/t113_regs.h"
 

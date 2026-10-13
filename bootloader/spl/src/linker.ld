@@ -1,6 +1,22 @@
-/* Defines where code, globals, and stack belong in SRAM */
-/* describes the layout */
-/* Is working "hand in hand" with ASM */
+/*
+ * linker.ld - tells the linker WHERE everything goes in SRAM A1 (0x20000, 32K)
+ *
+ * Memory layout:
+ *   0x20000  .text.entry  header + start.S (must be first, BROM jumps to byte 0)
+ *            .text        C code
+ *            .rodata      const + strings
+ *            .data        globals with a value
+ *            ------------ spl_end, everything above here is in the .bin
+ *            .bss         globals that start at 0 (NOLOAD, start.S zeroes it)
+ *            free
+ *   0x27000  .stack       4K, grows down (NOLOAD)
+ *   0x28000  stack_top
+ *
+ * Symbols for start.S: spl_size, bss_start, bss_end, stack_top
+ * ASSERTs stop the build if .bss isn't 4-byte aligned or runs into the stack
+ *
+ * SRAM A1 from manual 3.1, p.34
+ */
 
 /* found in 3.1 Memory Mapping - Page 34 */
 START_ADDRESS =0x00020000 ;

@@ -1,3 +1,10 @@
+/*
+ * t113_regs.h - all T113-S3 register addresses I use, in ONE place
+ *
+ * Every address exists only here, so if one is wrong I fix it once
+ * Source: Allwinner T113-S3 User Manual 
+ */
+
 #pragma once
 
 /* Source: Allwinner T113-S3 User Manual */

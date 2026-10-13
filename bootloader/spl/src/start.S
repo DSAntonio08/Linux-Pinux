@@ -1,4 +1,21 @@
-@ Assembly that establishes the CPU state and stack, initializes the C environment, and calls the C entry function.
+/*
+ * start.S - the very first code the CPU runs after the Boot-ROM (BROM) jumps to my SPL
+ *
+ * Runs at 0x20000 (SRAM A1), loaded there by the BROM
+ *
+ * What it does:
+ *   1. eGON.BT0 header (48 bytes), so the BROM recognizes the image
+ *   2. CPU into Supervisor mode, IRQ + FIQ masked, little endian
+ *   3. VBAR -> my vector table (every exception just hangs in b . for now)
+ *   4. MMU, caches, alignment check off; SMP bit on (ACTLR)
+ *   5. sp = stack_top (from the linker)
+ *   6. clear .bss (zero it word by word, bss_start..bss_end from the linker)
+ *   7. bl main, and b . if main ever returns
+ *
+ * After this, C works: stack is there, .bss is 0, .data is already in place (BROM loaded it)
+ *
+ * Must be built with arm-none-eabi-gcc -c (not as), bc the #defines need the C preprocessor
+ */
 
 .syntax unified
 @ CPU used by the T113-S3
