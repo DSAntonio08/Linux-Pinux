@@ -75,6 +75,6 @@ SECTIONS
     spl_size = spl_end - spl_start;
 
     /* if ! - give error msg "bss not aligned" */
-   ASSERT(bss_start % 4 == 0 && bss_end % 4 == 0, "bss not 4-byte aligned")
+    ASSERT(bss_start % 4 == 0 && bss_end % 4 == 0, "bss not 4-byte aligned")
     ASSERT(bss_end <= stack_bottom, "bss overlaps stack") 
 }
