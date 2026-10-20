@@ -33,7 +33,9 @@ int main(int argc, char *argv[]) {
 
     uint8_t *buf = NULL;
     long len = 0;
+    long padded2 = 0;
 
+    // &buf means adress of
     if (getBinary(argv[1], &buf, &len) != 0) {
         return 1;
     }
@@ -41,6 +43,12 @@ int main(int argc, char *argv[]) {
         free(buf);
         return 1;
     }
+    if (padImg(&buf, len, &padded2) != 0) {
+        free(buf);
+        return 1;
+    }
+
+    printf("magic: %.8s\n", (char *)buf + 4); // did correctly give me eGON.BT0
 
     free(buf); // memory management bc of no garbage collector
     return 0;
@@ -75,7 +83,7 @@ int getBinary(const char *file, uint8_t **out_buf, long *out_len) {
         if (ferror(binaryFile)) {
             perror("fread");
         } else {
-            fprintf(stderr, "fread: short read (%zu of %ld bytes)\n", numberOfItemsRead, fileLen);
+            fprintf(stderr, "fread: short read (%zu of %li bytes)\n", numberOfItemsRead, fileLen);
         }
         free(buffer);
         fclose(binaryFile);
@@ -90,7 +98,7 @@ int getBinary(const char *file, uint8_t **out_buf, long *out_len) {
 
 int chkImgType(const uint8_t *buf, long len) {
     if (len < 48) {
-        fprintf(stderr, "error: file too small (%ld bytes, eGON header needs 48)\n", len);
+        fprintf(stderr, "error: file too small (%li bytes, eGON header needs 48)\n", len);
         return 1;
     }
 
@@ -107,7 +115,16 @@ int chkImgType(const uint8_t *buf, long len) {
     return 0;
 }
 
-int padImg(uint8_t **pad, long len, long *out_padded){
-    
+int padImg(uint8_t **toPad, long len, long *out_padded) {
+    long padded = (len + 511) / 512 * 512;
+    uint8_t *tmp = realloc(*toPad, padded);
+    if (tmp == NULL) {
+        fprintf(stderr, "error: could not allocate %li bytes for padded image\n", padded);
+        return 1;
+    }
+    *toPad = tmp;
+    memset(*toPad + len, 0, padded - len);
+
+    *out_padded = padded;
     return 0;
 }
