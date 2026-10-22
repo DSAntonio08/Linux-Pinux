@@ -6,6 +6,7 @@
 *.ko
 *.obj
 *.elf
+bootloader/spl/build/
 
 # Linker output
 *.ilk
