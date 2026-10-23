@@ -18,7 +18,7 @@
 
 
 #include <stdint.h>
-#include "bootloader/spl/include/t113_regs.h"
+#include "../include/t113_regs.h"
 
 #define REG_PORT_G 0x02000120 // Adress of the Register for GPIO-Port G
 
