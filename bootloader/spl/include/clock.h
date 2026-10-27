@@ -9,5 +9,4 @@
 #include <stdio.h>
 
 void cl_init_uart();
-void chkBROM();
 void enPLL();
