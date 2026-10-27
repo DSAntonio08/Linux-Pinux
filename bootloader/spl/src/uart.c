@@ -15,11 +15,11 @@
  * Terminal: screen /dev/tty.usbserial-XXXX 115200
  */
 
-
 #include "../include/uart.h"
 #include "../include/clock.h"
 #include "../include/io.h"
- 
+#include <stdint.h>
+
 #define REG_PORT_G 0x02000120 // Adress of the Register for GPIO-Port G
 
 void uart_init(void) {
@@ -62,11 +62,29 @@ void uart_init(void) {
     write32(addr + 0x0c, val);
 }
 
-void uart_transmit(char DATA) {
+void uart_putc(char c) {
     // Put whatever you wanna send into the Send-Register if it's not occupied already
 
     uintptr_t addr = UART1_BASE;
     while ((read32(addr + 0x7c) & (0x1 << 1)) == 0)
         ;
-    write32(addr + 0x00, DATA);
+    write32(addr + 0x00, c);
+}
+
+void uart_puts(const char *s) {
+    while (*s != 0) {
+        uart_putc(*s);
+        s++;
+    }
+}
+
+uint32_t nibble(uint32_t val, int k) { return (val >> (4 * k)) & 0x0F; }
+
+void uart_puthex32(uint32_t val) {
+    const char *lookup = "0123456789ABCDEF";
+
+    for (int i = 7; i >= 0; i--) {
+        uint32_t n = nibble(val, i);
+        uart_putc(lookup[n]);
+    }
 }
