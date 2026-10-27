@@ -15,26 +15,55 @@
  */
 
 #include "../include/clock.h"
+#include "../include/io.h"
+#include "../include/t113_regs.h"
 #include "../include/uart.h"
+
+void dump_clock_state();
 
 int main(void) {
     cl_init_uart();
-
-    // everything except clock
+    // everything UART except clock
     uart_init();
+
     while (1) {
-        uart_transmit('H');
-        uart_transmit('E');
-        uart_transmit('L');
-        uart_transmit('L');
-        uart_transmit('O');
-        uart_transmit(' ');
-        uart_transmit('W');
-        uart_transmit('O');
-        uart_transmit('R');
-        uart_transmit('L');
-        uart_transmit('D');
-        uart_transmit('\r'); // carriage return
-        uart_transmit('\n'); // new line
+        uart_puts("Hello World\r\n");
+    }
+}
+
+void dump_clock_state() {
+    /*
+    read each clock register at startup and print it next to its manual reset value, so you can see what the BROM changed.
+    */
+
+    struct clock_reg {
+        const char *name;
+        uint32_t offset;
+        uint32_t reset_value;
+    };
+
+    static const struct clock_reg clock_regs[] = {
+        {"PLL_CPU_CTRL", CCU_PLL_CPU, 0x4A001000}, 
+        {"PLL_DDR_CTRL", CCU_PLL_DDR, 0x48002301}, 
+        {"PLL_PERI_CTRL", CCU_PLL_PERI, 0x48216300}, 
+        {"CPU_AXI_CFG", CCU_CPU_AXI_CFG, 0x00000301},
+        {"PSI_CLK", CCU_PSI_CLK, 0x00000000},      
+        {"APB0_CLK", CCU_APB0_CLK, 0x00000000}, 
+        {"APB1_CLK", CCU_APB1_CLK, 0x00000000},
+    };
+
+    for (int i = 0; i < sizeof(clock_regs) / sizeof(clock_regs[0]); i++) {
+        uint32_t val = read32(CCU_BASE + clock_regs[i].offset);
+        if (val != clock_regs[i].reset_value) {
+            uart_puts(clock_regs[i].name);
+            uart_puts(": ");
+            uart_puthex32(val);
+            uart_puts(" (reset ");
+            uart_puthex32(clock_regs[i].reset_value);
+            uart_puts(")");
+            if (val != clock_regs[i].reset_value)
+                uart_puts(" CHANGED");
+            uart_puts("\r\n");
+        }
     }
 }
