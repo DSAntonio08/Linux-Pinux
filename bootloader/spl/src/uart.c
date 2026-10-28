@@ -17,38 +17,26 @@
 
 #include "../include/uart.h"
 #include "../include/clock.h"
+#include "../include/gpio.h"
 #include "../include/io.h"
 #include <stdint.h>
-
-#define REG_PORT_G 0x02000120 // Adress of the Register for GPIO-Port G
 
 void uart_init(void) {
     // APB1 to 24MHz + UART1 clock gate open + out of reset, all in clock.c
     cl_init_uart();
 
-    // Configure UART1/PG6,7 to Tx and Rx
-
-    uintptr_t addr = GPIO_BASE + GPIO_PG_CFG0;
-    uint32_t val = read32(addr);
-    uint32_t mask = (0xf << 24); // set the 4bit Value of PG6 to 1111
-    mask = ~mask;                // change all 1s to 0s
-    val = val & mask;            // use a AND-Gate to bring the mask over the existing 4bit config in PG6
-    val |= (2 << 24);            // short-form, but does the same. left-shift the 2 by 24 (6 times 4bit) and then use a OR to write 0010
-    write32(addr, val);          // actually WRITE the new config Exact Same thing for PG7
-    val = read32(addr);
-    val &= ~(0xfu << 28); // 28 instead of 24 bc of +4bit, u js means unsigned
-    val |= (2 << 28);
-    write32(addr, val);
+    gpio_set_func(6, 2); // UART1_TX
+    gpio_set_func(7, 2); // UART1_RX
 
     // Configure:
     // - UART1 Baudrate too 115200
     // - UART Config 8N1 (8data, 1stop, no parity)
     // - FIFO
 
-    addr = UART1_BASE;
+    uintptr_t addr = UART1_BASE;
     write32(addr + 0x04, 0x0);                 // disable Interrupt by writing 0 in 0x02500404; because we send via polling, not Interrupt
     write32(addr + 0x08, 0xf7);                // enable FIFO Puffer for MSGs
-    val = read32(addr + 0x0c);                 // addr + 0x0c means go on 12bytes to another register; 1 << 7 means go 7Bit in 1 Register
+    uint32_t val = read32(addr + 0x0c);        // addr + 0x0c means go on 12bytes to another register; 1 << 7 means go 7Bit in 1 Register
     val |= (1 << 7);                           // DLAB to 1 (DLAB = a Switch, that selects the 'function' of 2 adresses (0x00 & 0x04); depending on state they do something different)
     write32(addr + 0x0c, val);                 // enable 'Baud-Rate division Register' to select Baude Rate later
     write32(addr + 0x00, 0xd & 0xff);          // write first half od 'Baud-Rate divisor'
