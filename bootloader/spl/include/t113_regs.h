@@ -23,6 +23,8 @@
 /* ---- GPIO ---- */
 #define GPIO_BASE 0x02000000u
 #define GPIO_PG_CFG0 0x120u /* PG0..PG7, 4 bits per pin */
+#define GPIO_PG_CFG1 0x124u /* PG8..PG15, 4 bits per pin */
+#define GPIO_PG_DAT 0x130u  /* PG data, 1 bit per pin */
 
 /* ---- UART ---- */
 #define UART1_BASE 0x02500400u
