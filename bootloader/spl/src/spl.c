@@ -15,9 +15,11 @@
  */
 
 #include "../include/clock.h"
+#include "../include/gpio.h"
 #include "../include/io.h"
 #include "../include/t113_regs.h"
 #include "../include/uart.h"
+#include "timer.h"
 
 void dump_clock_state();
 
@@ -26,8 +28,14 @@ int main(void) {
     // everything UART except clock
     uart_init();
 
+    gpio_set_func(13, 1); // PG13 -> output
+
     while (1) {
-        uart_puts("Hello World\r\n");
+        // uart_puts("Hello World\r\n");
+        gpio_write(13, 1); // PG13 high (3V3), LED on
+        udelay(1000000);
+        gpio_write(13, 0); // PG13 low (0V), LED off
+        udelay(1000000);
     }
 }
 
@@ -43,13 +51,8 @@ void dump_clock_state() {
     };
 
     static const struct clock_reg clock_regs[] = {
-        {"PLL_CPU_CTRL", CCU_PLL_CPU, 0x4A001000}, 
-        {"PLL_DDR_CTRL", CCU_PLL_DDR, 0x48002301}, 
-        {"PLL_PERI_CTRL", CCU_PLL_PERI, 0x48216300}, 
-        {"CPU_AXI_CFG", CCU_CPU_AXI_CFG, 0x00000301},
-        {"PSI_CLK", CCU_PSI_CLK, 0x00000000},      
-        {"APB0_CLK", CCU_APB0_CLK, 0x00000000}, 
-        {"APB1_CLK", CCU_APB1_CLK, 0x00000000},
+        {"PLL_CPU_CTRL", CCU_PLL_CPU, 0x4A001000}, {"PLL_DDR_CTRL", CCU_PLL_DDR, 0x48002301}, {"PLL_PERI_CTRL", CCU_PLL_PERI, 0x48216300}, {"CPU_AXI_CFG", CCU_CPU_AXI_CFG, 0x00000301},
+        {"PSI_CLK", CCU_PSI_CLK, 0x00000000},      {"APB0_CLK", CCU_APB0_CLK, 0x00000000},    {"APB1_CLK", CCU_APB1_CLK, 0x00000000},
     };
 
     for (int i = 0; i < sizeof(clock_regs) / sizeof(clock_regs[0]); i++) {
