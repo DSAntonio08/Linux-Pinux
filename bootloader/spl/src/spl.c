@@ -51,8 +51,13 @@ void dump_clock_state() {
     };
 
     static const struct clock_reg clock_regs[] = {
-        {"PLL_CPU_CTRL", CCU_PLL_CPU, 0x4A001000}, {"PLL_DDR_CTRL", CCU_PLL_DDR, 0x48002301}, {"PLL_PERI_CTRL", CCU_PLL_PERI, 0x48216300}, {"CPU_AXI_CFG", CCU_CPU_AXI_CFG, 0x00000301},
-        {"PSI_CLK", CCU_PSI_CLK, 0x00000000},      {"APB0_CLK", CCU_APB0_CLK, 0x00000000},    {"APB1_CLK", CCU_APB1_CLK, 0x00000000},
+        {"PLL_CPU_CTRL", CCU_PLL_CPU, 0x4A001000},
+        {"PLL_DDR_CTRL", CCU_PLL_DDR, 0x48002301},
+        {"PLL_PERI_CTRL", CCU_PLL_PERI, 0x48216300}, 
+        {"CPU_AXI_CFG", CCU_CPU_AXI_CFG, 0x00000301},
+        {"PSI_CLK", CCU_PSI_CLK, 0x00000000},      
+        {"APB0_CLK", CCU_APB0_CLK, 0x00000000},   
+        {"APB1_CLK", CCU_APB1_CLK, 0x00000000},
     };
 
     for (int i = 0; i < sizeof(clock_regs) / sizeof(clock_regs[0]); i++) {
