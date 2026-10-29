@@ -8,6 +8,7 @@
 
 #include "../include/clock.h"
 #include "../include/io.h"
+#include "timer.h"
 
 void cl_init_uart(void) {
     // Set APB1 (Advanced Peripheral Bus 1) to 24MHz for sure
@@ -34,31 +35,39 @@ void cl_init_uart(void) {
     write32(addr, val);
 }
 
-void enPLL() {
-    /*
-    Bit 31: PLL_EN, the main switch.
-    Bit 30: PLL_LDO_EN, the PLL’s power supply, which defaults to 1.
-    Bit 29: LOCK_ENABLE, which tells the PLL to start tracking its lock.
-    Bit 28: LOCK, read-only. It is 1 once the output is stable.
-    Bit 27: PLL_OUTPUT_GATE, where 1 lets the clock out to the chip.
-    */
+int enPLL(uint32_t offset) {
 
-    /*
-    The function takes the register’s offset, so one function serves several PLLs. The steps are:
+    uintptr_t addr = CCU_BASE + offset;
+    uint32_t val = read32(addr);
 
-    Already on? If PLL_EN and LOCK are both set, return success without touching anything.
-    This is my addition, not the manual’s.
-    If the BROM already enabled the PLL and something runs from it, closing the gate would glitch that clock.
+    // if the BROM already enabled it and something runs from it, closing the gate below would glitch that clock
+    // BOTH bits must be set, so compare against both: (val & (A | B)) alone would be true if just one is set
+    if ((val & (PLL_EN | PLL_LOCK)) == (PLL_EN | PLL_LOCK))
+        return 0;
 
-    Set PLL_EN and LDO_EN, and clear the output gate, so no clock leaves the PLL while it settles.
+    // PLL + its power on, output gate closed, so no clock leaves the PLL while it settles
+    val |= PLL_EN | PLL_LDO_EN;
+    val &= ~PLL_OUTPUT_GATE;
+    write32(addr, val);
 
-    Set LOCK_ENABLE.
+    // start lock detection
+    val |= PLL_LOCK_EN;
+    write32(addr, val);
 
-    Wait for LOCK, with a timeout. On timeout, return an error code.
-    clock.c should not print, so the caller (spl.c) decides what to do.
+    // wait for LOCK, max 2 ms (PLL_CPU needs up to 1.5 ms, the others 500 us, p.60)
+    int timeout = 2000;
+    while ((read32(addr) & PLL_LOCK) == 0) {
+        if (timeout == 0)
+            return -1;
+        udelay(1);
+        timeout--;
+    }
 
-    Wait 20 us (the manual says so).
+    udelay(20); // manual: wait 20 us after LOCK
 
-    Set the output gate to 1.
-    */
+    // open the output gate, now the PLL is usable
+    val |= PLL_OUTPUT_GATE;
+    write32(addr, val);
+
+    return 0;
 }
