@@ -33,9 +33,9 @@ int main(void) {
     while (1) {
         // uart_puts("Hello World\r\n");
         gpio_write(13, 1); // PG13 high (3V3), LED on
-        udelay(1000000);
+        udelay(100000);
         gpio_write(13, 0); // PG13 low (0V), LED off
-        udelay(1000000);
+        udelay(100000);
     }
 }
 
