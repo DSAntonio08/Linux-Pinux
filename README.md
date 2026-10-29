@@ -23,18 +23,43 @@ The OlivePi board includes:
 
 ## Current state
 
-Very early development.
+Early development, the hardware is up and running.
 
-The PCB and components have been ordered, and I’m currently working on the first UART pin configuration. Nothing has been verified on the actual board yet.
+The OlivePi PCB has arrived and is assembled. I measured every supply voltage and they are all correct.
 
-The first milestone is to run my own code from microSD and get a recognizable message over UART.
+My own SPL (Secondary Program Loader, the first code that runs after the chip's Boot ROM) now runs on the board:
+
+- The Boot ROM loads my image from microSD (eGON.BT0 header from `start.S`, checksum and padding from `tools/mkboot0`).
+- UART1 (PG6/PG7, 115200 8N1) prints text to a serial terminal.
+- A small GPIO driver for Port G (`gpio_set_func`, `gpio_read`, `gpio_write`) blinks an LED on PG13.
+
+The first milestone, running my own code from microSD and getting a recognizable message over UART, is reached.
+
+## Building
+
+The SPL is built with the Arm GNU toolchain (`arm-none-eabi-gcc`):
+
+```
+cd bootloader/spl
+make
+```
+
+This produces `build/spl-boot.bin`. The Boot ROM reads it from the microSD card at an offset of 8 KiB:
+
+```
+sudo dd if=build/spl-boot.bin of=/dev/<sd-card> bs=1024 seek=8
+```
 
 ## Planned development
 
-- Check the hardware when it arrives.
-- Get the first UART output from my own code.
-- Develop the bootloader until it can start Linux.
-- Build a minimal user space with my own init program, shell and basic utilities.
-- Bring up USB, Ethernet and HDMI step by step.
+- [x] Get the first UART output from my own code.
+- [x] Drive GPIOs (blinking LED on PG13).
+- [x] Check that the timer really runs at 24 MHz.
+- [ ] Set up clocks and PLLs.
+- [ ] Initialize DRAM.
+- [ ] Load the next bootloader stage from microSD.
+- [ ] Develop the bootloader until it can start Linux.
+- [ ] Build a minimal user space with my own init program, shell and basic utilities.
+- [ ] Bring up USB, Ethernet and HDMI step by step.
 
 I’ll document what works, what doesn’t and what I learn along the way.
