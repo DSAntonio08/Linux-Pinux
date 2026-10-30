@@ -9,7 +9,6 @@
  *
  * Only multiply, never divide: a 64-bit division needs libgcc (__aeabi_uldivmod), which -nostdlib doesn't link
  *
- * TODO on the board: check that 24 MHz is right, e.g. print a char every udelay(1000000) and see if it's 1/s
  */
 
 #include "timer.h"
@@ -23,7 +22,7 @@ static uint64_t read_cntpct(void) {
     return ((uint64_t)high << 32) | low; // glue the 2 halves together
 }
 
-void udelay(uint32_t us) {
+void timer_udelay(uint32_t us) {
     uint64_t start = read_cntpct();
     uint64_t ticks = (uint64_t)us * TICKS_PER_US; // cast first, so the multiplication can't overflow 32 bit
 

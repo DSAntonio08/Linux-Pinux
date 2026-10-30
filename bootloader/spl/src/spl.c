@@ -21,10 +21,10 @@
 #include "../include/uart.h"
 #include "timer.h"
 
-void dump_clock_state();
+static void dump_clock_state(void);
 
 int main(void) {
-    cl_init_uart();
+    clock_init_uart();
     // everything UART except clock
     uart_init();
 
@@ -33,13 +33,13 @@ int main(void) {
     while (1) {
         // uart_puts("Hello World\r\n");
         gpio_write(13, 1); // PG13 high (3V3), LED on
-        udelay(100000);
+        timer_udelay(100000);
         gpio_write(13, 0); // PG13 low (0V), LED off
-        udelay(100000);
+        timer_udelay(100000);
     }
 }
 
-void dump_clock_state() {
+static void dump_clock_state(void) {
     /*
     read each clock register at startup and print it next to its manual reset value, so you can see what the BROM changed.
     */
@@ -61,7 +61,7 @@ void dump_clock_state() {
     };
 
     for (int i = 0; i < sizeof(clock_regs) / sizeof(clock_regs[0]); i++) {
-        uint32_t val = read32(CCU_BASE + clock_regs[i].offset);
+        uint32_t val = io_read32(CCU_BASE + clock_regs[i].offset);
         if (val != clock_regs[i].reset_value) {
             uart_puts(clock_regs[i].name);
             uart_puts(": ");

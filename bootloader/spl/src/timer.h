@@ -6,4 +6,4 @@
 
 #include <stdint.h>
 
-void udelay(uint32_t us);
+void timer_udelay(uint32_t us);
