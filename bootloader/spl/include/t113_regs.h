@@ -35,3 +35,6 @@
 
 /* ---- UART ---- */
 #define UART1_BASE 0x02500400u
+
+/* ---- DRAM ---- */
+#define DRAM_START 0x40000000
