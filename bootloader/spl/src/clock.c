@@ -35,6 +35,12 @@ void clock_init_uart(void) {
     io_write32(addr, val);
 }
 
+/*
+ * PLL = Phase-Locked Loop: a clock multiplier
+ * the board only has a 24 MHz crystal, a PLL turns that into a much faster clock (e.g. PLL_DDR -> DRAM clock)
+ * inside it an oscillator is compared to the 24 MHz over and over and corrected until both stay in step ("locked")
+ * LOCK bit = 1 means the output is stable and safe to use
+ */
 int clock_enable_pll(uint32_t offset) {
 
     uintptr_t addr = CCU_BASE + offset;
