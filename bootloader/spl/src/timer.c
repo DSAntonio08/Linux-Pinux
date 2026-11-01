@@ -11,7 +11,7 @@
  *
  */
 
-#include "timer.h"
+#include "../include/timer.h"
 
 #define TICKS_PER_US 24u // 24 MHz crystal -> 24 counter ticks per microsecond
 

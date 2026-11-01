@@ -1,7 +1,8 @@
 /*
  * t113_regs.h - all T113-S3 register addresses I use, in ONE place
  *
- * Every address exists only here, so if one is wrong I fix it once
+ * Every address is defined in exactly oen header, so if one is wrong I only fix it once
+ * DRAM controller registers live in dram_regs.h (only dram.c needs them) 
  * Source: Allwinner T113-S3 User Manual
  */
 
@@ -20,6 +21,10 @@
 #define CCU_APB0_CLK 0x0520
 #define CCU_APB1_CLK 0x524u /* APB1 clock source/dividers */
 
+#define CCU_DRAM_CLK 0x800u  /* DRAM clock source/divider + gate, p.xx */
+#define CCU_DRAM_BGR 0x80Cu  /* DRAM bus gate + reset */
+#define CCU_MBUS_CLK 0x540u  /* MBUS clock + reset */
+
 /* bits that are the same in every PLL_*_CTRL_REG, p.70 */
 #define PLL_EN (1u << 31)          /* main switch */
 #define PLL_LDO_EN (1u << 30)      /* PLL power supply, default 1 */
@@ -35,6 +40,3 @@
 
 /* ---- UART ---- */
 #define UART1_BASE 0x02500400u
-
-/* ---- DRAM ---- */
-#define DRAM_START 0x40000000

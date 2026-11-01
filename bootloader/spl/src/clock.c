@@ -8,7 +8,7 @@
 
 #include "../include/clock.h"
 #include "../include/io.h"
-#include "timer.h"
+#include "../include/timer.h"
 
 void clock_init_uart(void) {
     // Set APB1 (Advanced Peripheral Bus 1) to 24MHz for sure

@@ -19,7 +19,7 @@
 #include "../include/io.h"
 #include "../include/t113_regs.h"
 #include "../include/uart.h"
-#include "timer.h"
+#include "../include/timer.h"
 
 static void dump_clock_state(void);
 
