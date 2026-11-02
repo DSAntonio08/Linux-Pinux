@@ -6,7 +6,20 @@
 /* ---- DRAM controller: COM block (MCTL_COM) ---- */
 /* general controller setup: work mode, master access enables, address remap */
 #define MCTL_COM_BASE 0x03102000u
-/* add the MCTL_COM_* offsets here when dram.c uses them */
+
+/* MAER (Master Access Enable): which bus masters may use the DRAM
+ *   master   hardware that reads/writes DRAM on its own (CPU, DMA, display, USB, ...)
+ *   bit      one per master, 1 = may access, 0 = blocked
+ * blocked during init, all allowed again at the end
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_COM_MAER0 0x20u /* master access allow, 1 bit per bus master */
+#define MCTL_COM_MAER1 0x24u
+#define MCTL_COM_MAER2 0x28u
+
+/* DBGCR ("debug control"): undocumented, despite the name part of the normal init
+ * bits 8-13 = controller wait time (awboot writes 0x20) */
+#define MCTL_COM_DBGCR 0x08u
+
 /* ---- DRAM controller: PHY block (MCTL_PHY) ---- */
 /* the DRAM's "physical" side: how fast, how long to wait, how the signals are tuned
  *   PIR      start button for the init steps (ZQ calibration, DRAM init, training)
@@ -18,6 +31,8 @@
  * Source: U-Boot sunxi DRAM driver, offsets not checked against the manual yet */
 #define MCTL_PHY_BASE 0x03103000u
 #define MCTL_PHY_CLKEN 0x0c
+#define MCTL_PHY_IOVREF_CR0 0x110
+#define MCTL_PHY_IOVREF_CR1 0x114
 
 /* ---- SYS_CFG (System Configuration) ---- */
 /* LDO and ZQ (resistor) calibration, needed for the DRAM PHY, manual p.168 */
@@ -28,10 +43,12 @@
 #define ZQ_RES_STATUS 0x16Cu /* RESCAL_STATUS_REG, calibration result */
 
 /* ---- SID (Security ID / eFuse) ---- */
-/* read-only chip data; U-Boot reads it during DRAM init */
+/* read-only chip data; U-Boot reads it during DRAM init
+ * eFuse = tiny fuses inside the chip, "burned" once at the factory, can never change again
+ * Allwinner stores a unique chip ID and per-chip calibration values there */
 #define SID_BASE 0x03006000u
-#define SID_EFUSE 0x228u
-#define SID_LDOB 0x21Cu
+#define SID_EFUSE 0x228u /* chip variant info, used to pick the AC remap table */
+#define SID_LDOB 0x21Cu  /* bits 8-15: LDOB calibration value for this chip */
 
 /* ---- AON_CPUCFG (CPU config, always-on domain) ---- */
 /* manual: R_CPUCFG */
@@ -44,12 +61,3 @@
 #define AON_PRCM_BASE 0x07010000u
 #define VDD_SYS_PWROFF_GATING 0x250u
 #define ANALOG_PWROFF_GATING 0x254u
-
-/* MAER (Master Access Enable): which bus masters may use the DRAM
- *   master   hardware that reads/writes DRAM on its own (CPU, DMA, display, USB, ...)
- *   bit      one per master, 1 = may access, 0 = blocked
- * blocked during init, all allowed again at the end
- * Source: awboot reg-dram.h, not in the manual */
-#define MCTL_COM_MAER0 0x20u /* master access allow, 1 bit per bus master */
-#define MCTL_COM_MAER1 0x24u
-#define MCTL_COM_MAER2 0x28u

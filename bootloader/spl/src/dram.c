@@ -33,7 +33,7 @@ struct dram_config {
      *   MR3  special modes, normally 0
      *
      * TPR = Allwinner's "timing parameters", but really a mix of PHY tuning values and flags
-     * (only the ones my DDR3 setup reads, tpr0-4 and tpr7-9 are unused for it)
+     * (only the ones my DDR3 setup reads, tpr0-4 and tpr7-9 are unused for it)1
      *   TPR5   Vref (reference voltage) for the data lines -> IOVCR0
      *   TPR6   Vref for the address/command lines -> IOVCR1
      *   TPR10  extra delays for clock/address lines (0 = none)
@@ -162,4 +162,65 @@ static void dram_zq_init(const struct dram_config *cfg) {
         uart_puthex32(io_read32(SYS_CFG_BASE + ZQ_RES_STATUS));
         uart_puts("\r\n");
     }
+}
+
+/*
+ * LDO = Low-DropOut regulator: a small voltage regulator built into the T113
+ * it turns an existing supply into a lower, stable voltage
+ * the T113 has two of them, both fed from LDO-IN (3.3 V):
+ *   LDOA  1.8 V for IO and analog parts
+ *   LDOB  VCC-DRAM, the supply of the DRAM IO and the DDR3 chip itself
+ * after reset LDOB only gives 1.35 V, but DDR3 needs 1.5 V (datasheet: 1.425-1.575 V)
+ * so it has to be raised before the DRAM is used ("VCC-DRAM needs be stable before SDRAM driver initialization")
+ * SYS_LDO_CTRL bits 8-15 = LDOB_TRIM, 1.167 V + value * 13.3 mV:
+ *   0x0E (14) = 1.353 V  reset default
+ *   0x19 (25) = 1.5 V    DDR3   <- what I set
+ *   0x2F (47) = 1.8 V    DDR2
+ * every chip is a little different, so Allwinner burns a correction value for LDOB into the eFuse (SID) at the factory
+ * if that value exists, it replaces the default (values above 0x20 are lowered by 0x16 = 22 steps = 0.3 V,
+ * which turns a 1.8 V trim into 1.5 V: 0x2F - 0x16 = 0x19)
+ */
+static void dram_ldo_init(void) {
+    uint32_t ldo_val = 25;
+
+    io_clearsetbits_le32((SYS_CFG_BASE + SYS_LDO_CTRL), 0x20ff00, ldo_val << 8);
+    timer_udelay(1);
+
+    uint32_t cal = (io_read32(SID_BASE + SID_LDOB) & 0xff00) >> 8;
+
+    if (cal == 0)
+        return;
+
+    if (cal > 0x20)
+        cal -= 0x16;
+
+    io_clearsetbits_le32((SYS_CFG_BASE + SYS_LDO_CTRL), 0xff00, cal << 8);
+}
+
+/*
+ * Vref = reference voltage: the PHY's receivers compare every incoming signal against it (above = 1, below = 0)
+ * should sit in the middle of the signal swing (~VCC-DRAM / 2), values from tpr5 (data lines) and tpr6 (address/command)
+ */
+static void dram_vref_init(const struct dram_config *cfg) {
+    if (cfg->dram_tpr13 & (1 << 17))
+        return;
+
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_IOVREF_CR0), 0x7f7f7f7f, cfg->dram_tpr5);
+
+    if (!(cfg->dram_tpr13 & (1 << 16)))
+        io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_IOVREF_CR1), 0x7f, cfg->dram_tpr6 & 0x7f);
+}
+
+/*
+ * tells the controller WHAT RAM is attached: type (DDR3), width (16 bit), ranks, banks, rows, columns
+ * needed so it can split a CPU address into bank / row / column, uses dram_geometry and dram_rank_width
+ */
+static void mctl_com_init(const struct dram_config *cfg) {
+    uint32_t val, width;
+    uintptr_t ptr;
+
+    // set controller wait time
+    io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_DBGCR), 0x3f00, 0x2000);
+
+    // set SDRAM type and data-bus width
 }
