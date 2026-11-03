@@ -20,6 +20,10 @@
  * bits 8-13 = controller wait time (awboot writes 0x20) */
 #define MCTL_COM_DBGCR 0x08u
 
+/* WORK_MODE0: what DRAM is attaced (type, bus width, ranks, banks, rows, page size) */
+#define MCTL_COM_WORK_MODE0 0x00u
+#define MCTL_COM_WORK_MODE1 0x04u
+
 /* ---- DRAM controller: PHY block (MCTL_PHY) ---- */
 /* the DRAM's "physical" side: how fast, how long to wait, how the signals are tuned
  *   PIR      start button for the init steps (ZQ calibration, DRAM init, training)

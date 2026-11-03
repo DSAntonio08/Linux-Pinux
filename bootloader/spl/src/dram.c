@@ -223,4 +223,12 @@ static void mctl_com_init(const struct dram_config *cfg) {
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_DBGCR), 0x3f00, 0x2000);
 
     // set SDRAM type and data-bus width
+    val = ((cfg->dram_type & 0x7) << 16) |      // DRAM type
+          ((~cfg->dram_rank_width & 0x1) << 12) | // DQ width
+          (1 << 22);                             // burst length 8 (DDR3 always uses BL8)
+
+    if (cfg->dram_tpr13 & (1 << 5))
+        val |= (1 << 19); // 1T instead of 2T
+
+    io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_WORK_MODE0), 0x00fff000, val);
 }
