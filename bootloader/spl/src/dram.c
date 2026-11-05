@@ -291,6 +291,7 @@ static const uint8_t ac_remapping_tables[][22] = {
 
 static void mctl_phy_addrcomm_remapping(const struct dram_config *cfg) {
     const uint8_t *remap;
+    uint32_t val;
     uint32_t fuse = (io_read32(SID_BASE + SID_EFUSE) & 0xf00) >> 8;
     uint32_t chip_id = io_read32(SID_BASE + SID_CHIPID) & 0xffff;
 
@@ -336,4 +337,102 @@ static void mctl_phy_addrcomm_remapping(const struct dram_config *cfg) {
             break;
         }
     }
+    val = ((remap[4] << 25) | (remap[3] << 20) | (remap[2] << 15) | (remap[1] << 10) | (remap[0] << 5));
+    io_write32(MCTL_COM_BASE + MCTL_COM_REMAP0, val);
+
+    val = ((remap[10] << 25) | (remap[9] << 20) | (remap[8] << 15) | (remap[7] << 10) | (remap[6] << 5) | (remap[5] << 0));
+    io_write32(MCTL_COM_BASE + MCTL_COM_REMAP1, val);
+
+    val = ((remap[15] << 20) | (remap[14] << 15) | (remap[13] << 10) | (remap[12] << 5) | (remap[11] << 0));
+    io_write32(MCTL_COM_BASE + MCTL_COM_REMAP2, val);
+
+    val = (remap[21] << 25) | (remap[20] << 20) | (remap[19] << 15) | (remap[18] << 10) | (remap[17] << 5) | (remap[16] << 0);
+    io_write32((MCTL_COM_BASE + MCTL_COM_REMAP3), val);
+
+    io_setbits_le32((MCTL_COM_BASE + MCTL_COM_REMAP0), 1);
+}
+
+static void mctl_set_timing_params(const struct dram_config *cfg) {
+    // row timing (open a row = activate, close a row = precharge)
+    uint8_t t_act_window;    // tFAW: max 4 row opens in this time
+    uint8_t t_row2row_delay; // tRRD: open row in bank A -> open row in bank B
+    uint8_t t_ras_cas_delay; // tRCD: open row -> read/write (RAS = row address, CAS = column address)
+    uint8_t t_row_cycle;     // tRC: open row -> open next row in the same bank
+    uint8_t t_row_precharge; // tRP: how long closing a row takes
+    uint8_t t_min_row_open;  // tRAS: min time a row has to stay open
+    uint8_t t_max_row_open;  // tRAS(max): max time a row may stay open, in steps of 1024 cycles
+
+    // refresh
+    uint16_t t_refresh_cycle;    // tRFC: how long one refresh takes
+    uint16_t t_refresh_interval; // tREFI: how often a refresh is needed, in steps of 32 cycles
+
+    // read/write delays
+    uint8_t t_write_read_delay;  // tWTR: write -> read
+    uint8_t t_cas_latency;       // tCL: read command -> DRAM sends the data
+    uint8_t t_cas_write_latency; // tCWL: write command -> DRAM wants the data
+    uint8_t write_latency;       // write command -> controller hands the data to the PHY
+    uint8_t t_rdata_en;          // read command -> controller listens to the PHY
+    uint8_t t_col2col_delay;     // tCCD: read -> read or write -> write
+    uint8_t t_read_precharge;    // tRTP: read -> close the row
+    uint8_t t_write_precharge;   // tWTP: write -> close the row
+    uint8_t t_write2read;        // write command -> read command, as the controller counts it
+    uint8_t t_read2write;        // read command -> write command, as the controller counts it
+
+    // power-down and self-refresh (DRAM sleeps, self-refresh = it refreshes itself while sleeping)
+    uint8_t t_powerdown_exit;   // tXP: wake up from power-down -> next command
+    uint8_t t_clk_enable;       // tCKE: min time the CKE pin (clock enable) stays on or off
+    uint8_t t_selfref_exit_clk; // tCKSRX: clock has to run this long before leaving self-refresh
+    uint8_t t_selfref_min;      // tCKESR: min time the DRAM stays in self-refresh
+
+    // mode registers
+    uint8_t t_mode_update;  // tMOD: write a mode register -> next normal command
+    uint8_t t_mode_to_mode; // tMRD: write a mode register -> write the next one
+    uint8_t t_mode_write;   // tMRW: LPDDR only, 0 for DDR3
+
+    // wait times at power-on, done by the PHY, in DRAM clock cycles (dram_clk in MHz * us = cycles)
+    uint32_t t_init_cke_low;  // tDINIT0: 500 us CKE off after power-on
+    uint32_t t_init_cke_high; // tDINIT1: 360 ns CKE on -> first command
+    uint32_t t_init_reset;    // tDINIT2: 200 us reset pin held low
+    uint32_t t_init_zq;       // tDINIT3: 1 us for the first ZQ calibration
+
+    t_refresh_cycle = dram_ns_to_cycles(cfg, 350);
+    t_refresh_interval = dram_ns_to_cycles(cfg, 7800) / 32 + 1; // +1 from awboot, no reason given there (marked XXX)
+    t_write_read_delay = dram_ns_to_cycles(cfg, 8) + 2;         // +2 from awboot, no reason given there (marked XXX)
+
+    // awboot: max(..., 2), dropped: 10 ns is only below 2 cycles when dram_clk <= 200 MHz
+    t_row2row_delay = dram_ns_to_cycles(cfg, 10);
+    t_powerdown_exit = dram_ns_to_cycles(cfg, 10);
+
+    if (cfg->dram_clk <= 800) {
+        t_act_window = dram_ns_to_cycles(cfg, 50);
+        t_ras_cas_delay = dram_ns_to_cycles(cfg, 15);
+        t_row_precharge = dram_ns_to_cycles(cfg, 15);
+        t_row_cycle = dram_ns_to_cycles(cfg, 53);
+        t_min_row_open = dram_ns_to_cycles(cfg, 38);
+
+        t_cas_latency = 6;
+        write_latency = 2;
+        t_cas_write_latency = 4;
+        t_rdata_en = 4;
+    }
+
+    t_max_row_open = cfg->dram_clk / 30;
+    t_write_precharge = t_cas_write_latency + 2 + t_write_read_delay; // tCWL + BL/2 + tWTR
+    t_write2read = t_cas_write_latency + t_write_read_delay;          // tCWL + tWTR
+
+    // fixed numbers from awboot
+    t_col2col_delay = 2;
+    t_read_precharge = 4;
+    t_read2write = 5; // awboot: 6 only if tpr13 bits 2-3 != 1 AND dram_clk >= 912, neither is true for me
+    t_clk_enable = 3;
+    t_selfref_exit_clk = 5;
+    t_selfref_min = 4;
+    t_mode_update = 12;
+    t_mode_to_mode = 4;
+    t_mode_write = 0;
+
+    t_init_cke_low = 500 * cfg->dram_clk + 1;         // 500 us
+    t_init_cke_high = 360 * cfg->dram_clk / 1000 + 1; // 360 ns
+    t_init_reset = 200 * cfg->dram_clk + 1;           // 200 us
+    t_init_zq = 1 * cfg->dram_clk + 1;                // 1 us
 }

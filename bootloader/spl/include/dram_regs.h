@@ -24,6 +24,17 @@
 #define MCTL_COM_WORK_MODE0 0x00u
 #define MCTL_COM_WORK_MODE1 0x04u
 
+/* REMAP0..3 (Address/Command remap)
+ *   AC       address/command lines from the controller to the DRAM (address bits, bank bits, RAS, CAS, WE, ...)
+ *   remap    which pin each AC signal goes out on, so it fits how the DRAM is wired inside the package
+ *   entry    5 bit pin number, 22 entries spread over the 4 registers
+ * REMAP0: bit 0 = remap on, entries start at bit 5; REMAP1..3: entries start at bit 0
+ * Source: awboot dram.c (raw addresses 0x3102500..0x310250c), not in the manual */
+#define MCTL_COM_REMAP0 0x500u 
+#define MCTL_COM_REMAP1 0x504u 
+#define MCTL_COM_REMAP2 0x508u
+#define MCTL_COM_REMAP3 0x50cu 
+
 /* ---- DRAM controller: PHY block (MCTL_PHY) ---- */
 /* the DRAM's "physical" side: how fast, how long to wait, how the signals are tuned
  *   PIR      start button for the init steps (ZQ calibration, DRAM init, training)
