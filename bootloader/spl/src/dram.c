@@ -12,15 +12,15 @@
 struct dram_config {
     uint32_t dram_clk;
     uint32_t dram_type;   // dram_type DDR2: 2    DDR3: 3    LPDDR2: 6    LPDDR3: 7   DDR3L: 31
-    uint32_t dram_zq;     //val for the lower 24bit of ZQCR
-    uint32_t dram_odt_en; //controls the termination on the controller side
+    uint32_t dram_zq;     // val for the lower 24bit of ZQCR
+    uint32_t dram_odt_en; // controls the termination on the controller side
 
     /*
-    * Control config: 
-    * 128 MB DDR3, 16 bit wide:
-    * 8 banks * 8192 rows * 1024 columns * 2 bytes = 134217728 B = 128 MB
-    */
-    uint32_t dram_geometry;   //para1
+     * Control config:
+     * 128 MB DDR3, 16 bit wide:
+     * 8 banks * 8192 rows * 1024 columns * 2 bytes = 134217728 B = 128 MB
+     */
+    uint32_t dram_geometry;   // para1
     uint32_t dram_rank_width; // para2
 
     /*
@@ -133,7 +133,7 @@ static void dram_clock_init(struct dram_config *cfg) {
     timer_udelay(5);
 
     // memory Controller clock enable
-    io_write32((MCTL_PHY_BASE + MCTL_PHY_BASE), 0x8000);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_CLKEN), 0x8000);
     timer_udelay(10);
 }
 
@@ -216,19 +216,124 @@ static void dram_vref_init(const struct dram_config *cfg) {
  * needed so it can split a CPU address into bank / row / column, uses dram_geometry and dram_rank_width
  */
 static void mctl_com_init(const struct dram_config *cfg) {
-    uint32_t val, width;
-    uintptr_t ptr;
+    uint32_t val;
 
     // set controller wait time
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_DBGCR), 0x3f00, 0x2000);
 
     // set SDRAM type and data-bus width
-    val = ((cfg->dram_type & 0x7) << 16) |      // DRAM type
+    val = ((cfg->dram_type & 0x7) << 16) |        // DRAM type
           ((~cfg->dram_rank_width & 0x1) << 12) | // DQ width
-          (1 << 22);                             // burst length 8 (DDR3 always uses BL8)
+          (1 << 22);                              // burst length 8 (DDR3 always uses BL8)
 
     if (cfg->dram_tpr13 & (1 << 5))
         val |= (1 << 19); // 1T instead of 2T
 
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_WORK_MODE0), 0x00fff000, val);
+
+    // set rank, banks, rows and page size
+    // awboot loops twice when 2 ranks have a different layout, I only have 1 rank -> once is enough
+    val = (cfg->dram_rank_width >> 12) & 0x3;             // rank
+    val |= ((cfg->dram_geometry >> 12) << 2) & 0x4;       // bank - 2
+    val |= (((cfg->dram_geometry >> 4) - 1) << 4) & 0xff; // row - 1
+
+    // page size (KB) -> column address width - 3
+    switch (cfg->dram_geometry & 0xf) {
+    case 8:
+        val |= 0xa00;
+        break;
+    case 4:
+        val |= 0x900;
+        break;
+    case 2:
+        val |= 0x800;
+        break;
+    case 1:
+        val |= 0x700;
+        break;
+    default:
+        val |= 0x600;
+        break;
+    }
+
+    io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_WORK_MODE0), 0xfff, val);
+
+    val = (io_read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0) & 0x1) ? 0x303 : 0x201;
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_ODTMAP), val);
+
+    if (cfg->dram_rank_width & 1)
+        io_write32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(1)), 0);
+}
+
+/*
+ * AC remap tables: which physical pin each address/command signal goes out on
+ * one table per chip variant, the eFuse value picks which one (see mctl_phy_addrcomm_remapping)
+ *   22 entries   one per AC signal, which entry is which signal is not documented
+ *   value        pin number (5 bit), packed into REMAP0..3
+ *   [0]          all 0 = no remap, straight wiring
+ * DDR3 only uses [0]..[5] and [7], [6] [8] [9] are for DDR2 / H133 chips
+ * Source: awboot dram.c, numbers copied 1:1
+ */
+static const uint8_t ac_remapping_tables[][22] = {
+    [0] = {0},
+    /* FPGA Verify DDR REMAP */
+    [1] = {0x1, 0x9, 0x3, 0x7, 0x8, 0x12, 0x4, 0xD, 0x5, 0x6, 0xA, 0x2, 0xE, 0xC, 0x0, 0x0, 0x15, 0x11, 0x14, 0x13, 0xB, 0x16}, // Generic DDR3 Type1
+    [2] = {0x4, 0x9, 0x3, 0x7, 0x8, 0x12, 0x1, 0xD, 0x2, 0x6, 0xA, 0x5, 0xE, 0xC, 0x0, 0x0, 0x15, 0x11, 0x14, 0x13, 0xB, 0x16}, // Generic DDR3 Type C
+    [3] = {0x1, 0x7, 0x8, 0xC, 0xA, 0x12, 0x4, 0xD, 0x5, 0x6, 0x3, 0x2, 0x9, 0x0, 0x0, 0x0, 0x15, 0x11, 0x14, 0x13, 0xB, 0x16}, // Generic DDR3 Type 8
+    [4] = {0x4, 0xC, 0xA, 0x7, 0x8, 0x12, 0x1, 0xD, 0x2, 0x6, 0x3, 0x5, 0x9, 0x0, 0x0, 0x0, 0x15, 0x11, 0x14, 0x13, 0xB, 0x16}, // Generic DDR3 Type 9
+    [5] = {0xD, 0x2, 0x7, 0x9, 0xC, 0x13, 0x5, 0x1, 0x6, 0x3, 0x4, 0x8, 0xA, 0x0, 0x0, 0x0, 0x15, 0x16, 0x12, 0x11, 0xB, 0x14}, // Generic DDR3 Type bf
+    /* ASIC Chip */
+    [6] = {0x3, 0xA, 0x7, 0xD, 0x9, 0xB, 0x1, 0x2, 0x4, 0x6, 0x8, 0x5, 0xC, 0x0, 0x0, 0x0, 0x14, 0x12, 0x0, 0x15, 0x16, 0x11},   // DDR2
+    [7] = {0x3, 0x2, 0x4, 0x7, 0x9, 0x1, 0x11, 0xC, 0x12, 0xE, 0xD, 0x8, 0xF, 0x6, 0xA, 0x5, 0x13, 0x16, 0x10, 0x15, 0x14, 0xB}, // DDR3 D1-H
+    [8] = {0x2, 0x13, 0x8, 0x6, 0xE, 0x5, 0x14, 0xA, 0x3, 0x12, 0xD, 0xB, 0x7, 0xF, 0x9, 0x1, 0x16, 0x15, 0x11, 0xC, 0x4, 0x10}, // DDR3 H133
+    [9] = {0x1, 0x2, 0xD, 0x8, 0xF, 0xC, 0x13, 0xA, 0x3, 0x15, 0x6, 0x11, 0x9, 0xE, 0x5, 0x10, 0x14, 0x16, 0xB, 0x7, 0x4, 0x12}, // DDR2 H133
+};
+
+static void mctl_phy_addrcomm_remapping(const struct dram_config *cfg) {
+    const uint8_t *remap;
+    uint32_t fuse = (io_read32(SID_BASE + SID_EFUSE) & 0xf00) >> 8;
+    uint32_t chip_id = io_read32(SID_BASE + SID_CHIPID) & 0xffff;
+
+    uart_puts("DDR efuse: 0x");
+    uart_puthex32(fuse);
+    uart_puts("\r\n");
+
+    uart_puts("chip id efuse: 0x");
+    uart_puthex32(chip_id);
+    uart_puts("\r\n");
+
+    if (cfg->dram_tpr13 & 0xc0000) {
+        remap = ac_remapping_tables[7];
+    } else {
+        /* Keep the switch for none
+         * once I know the value I can exachnge it
+         * with just some "precaution" if(!)
+         * and the actual value for my T113-S3 */
+        switch (fuse) {
+        case 8:
+            remap = ac_remapping_tables[2];
+            break;
+        case 9:
+            remap = ac_remapping_tables[3];
+            break;
+        case 10:
+            if (chip_id == 0x6800) { // 0x6800 is T113-S4 no remap
+                remap = ac_remapping_tables[0];
+            } else {
+                remap = ac_remapping_tables[5];
+            }
+            break;
+        case 11:
+            remap = ac_remapping_tables[4];
+            break;
+        default:
+        case 12:
+            remap = ac_remapping_tables[1];
+            break;
+        case 13:
+        case 14:
+            remap = ac_remapping_tables[0];
+            break;
+        }
+    }
 }

@@ -35,8 +35,26 @@
  * Source: U-Boot sunxi DRAM driver, offsets not checked against the manual yet */
 #define MCTL_PHY_BASE 0x03103000u
 #define MCTL_PHY_CLKEN 0x0c
-#define MCTL_PHY_IOVREF_CR0 0x110
-#define MCTL_PHY_IOVREF_CR1 0x114
+#define MCTL_PHY_IOVREF_CR0 0x110u
+#define MCTL_PHY_IOVREF_CR1 0x114u
+
+/* ODTMAP (On-Die Termination map)
+ *   ODT    a resistor INSIDE the DRAM chip, switched on so the data signals
+ *          don't bounce back at the end of the wire (like an echo) and mess up the next bits
+ *   MAP    a table: for each rank, which ODT pin gets switched on
+ *   rank   a set of chips the controller can switch between (I only have 1)
+ * value from the rank field in WORK_MODE0 bit 0: 1 rank -> 0x201, 2 ranks -> 0x303
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_ODTMAP 0x120u
+
+/* DXnGCR0 (Data lane n, General Configuration Register 0)
+ *   DX     data lane = 8 data lines (DQ) + 1 data mask (DM) + 1 strobe pair (DQS)
+ *   n      lane number, 16 bit bus -> DX0 = bits 0-7, DX1 = bits 8-15
+ *   GCR0   general settings of that lane (on/off, termination, timing)
+ * every lane has the same register block, 0x80 apart: DX0 = 0x344, DX1 = 0x3c4
+ * writing 0 turns the lane off (half DQ = 8 bit)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_DXnGCR0(x) (0x344u + 0x80u * (x))
 
 /* ---- SYS_CFG (System Configuration) ---- */
 /* LDO and ZQ (resistor) calibration, needed for the DRAM PHY, manual p.168 */
@@ -51,6 +69,7 @@
  * eFuse = tiny fuses inside the chip, "burned" once at the factory, can never change again
  * Allwinner stores a unique chip ID and per-chip calibration values there */
 #define SID_BASE 0x03006000u
+#define SID_CHIPID 0x200u /* bits 0-15: chip variant ID (0x6800 = T113-S4); Source: sunxi tools (xfel), not in the manual */
 #define SID_EFUSE 0x228u /* chip variant info, used to pick the AC remap table */
 #define SID_LDOB 0x21Cu  /* bits 8-15: LDOB calibration value for this chip */
 
