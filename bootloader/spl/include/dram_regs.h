@@ -20,6 +20,12 @@
  * bits 8-13 = controller wait time (awboot writes 0x20) */
 #define MCTL_COM_DBGCR 0x08u
 
+/* TIMER (awboot: TMR): meaning not documented, probably a timer register
+ * same offset in U-Boot's COM block struct for older Allwinner chips (H3/A64), no explanation there either
+ * not the same as MCTL_PHY_CLKEN (also 0x0c, but in the PHY block)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_COM_TIMER 0x0cu
+
 /* WORK_MODE0: what DRAM is attaced (type, bus width, ranks, banks, rows, page size) */
 #define MCTL_COM_WORK_MODE0 0x00u
 #define MCTL_COM_WORK_MODE1 0x04u
@@ -30,10 +36,10 @@
  *   entry    5 bit pin number, 22 entries spread over the 4 registers
  * REMAP0: bit 0 = remap on, entries start at bit 5; REMAP1..3: entries start at bit 0
  * Source: awboot dram.c (raw addresses 0x3102500..0x310250c), not in the manual */
-#define MCTL_COM_REMAP0 0x500u 
-#define MCTL_COM_REMAP1 0x504u 
+#define MCTL_COM_REMAP0 0x500u
+#define MCTL_COM_REMAP1 0x504u
 #define MCTL_COM_REMAP2 0x508u
-#define MCTL_COM_REMAP3 0x50cu 
+#define MCTL_COM_REMAP3 0x50cu
 
 /* ---- DRAM controller: PHY block (MCTL_PHY) ---- */
 /* the DRAM's "physical" side: how fast, how long to wait, how the signals are tuned
@@ -48,6 +54,72 @@
 #define MCTL_PHY_CLKEN 0x0c
 #define MCTL_PHY_IOVREF_CR0 0x110u
 #define MCTL_PHY_IOVREF_CR1 0x114u
+
+/* DRAM_MR0..3: values for the DRAM's mode registers, the PHY sends them INTO the DRAM chip at init
+ *   register   the outbox in the PHY, which one decides where it arrives (PHY MR0 -> DRAM chip MR0, ...)
+ *   value      the letter, its bits go 1:1 into the DRAM chip's mode register
+ * written now, sent later when the init is started (PIR, mctl_channel_init)
+ * Source: U-Boot dram_sun20i_d1.c (raw addresses 0x3103030..0x310303c), not in the manual */
+#define MCTL_PHY_DRAM_MR0 0x30u
+#define MCTL_PHY_DRAM_MR1 0x34u
+#define MCTL_PHY_DRAM_MR2 0x38u
+#define MCTL_PHY_DRAM_MR3 0x3cu
+
+/* LP3MR11: value for mode register 11, only LPDDR3 has it (its ODT setting)
+ * DDR3 has no MR11 -> always 0 for me, written anyway so it's not left at some unknown value
+ * awboot writes (dram_odt_en >> 4) & 0x3: in Allwinner's original code dram_odt_en probably had
+ * more bits, in awboot it's only 0 or 1 -> the shift always gives 0 (awboot has a TODO about it)
+ * Source: U-Boot dram_sun20i_d1.c (raw address 0x310302c), not in the manual */
+#define MCTL_PHY_LP3MR11 0x2cu
+
+/* PTR3, PTR4 (PHY Timing Register 3/4): wait times at power-on, the PHY waits them by itself
+ *   PTR3   bits 0-19 = tDINIT0 (CKE off after power-on), bits 20+ = tDINIT1 (CKE on -> first command)
+ *   PTR4   bits 0-19 = tDINIT2 (reset held low), bits 20+ = tDINIT3 (first ZQ calibration)
+ * Source: U-Boot dram_sun20i_d1.c (raw addresses 0x3103050, 0x3103054), not in the manual */
+#define MCTL_PHY_PTR3 0x50u
+#define MCTL_PHY_PTR4 0x54u
+
+/* DRAM_TIMING0..5 (DRAM Timing 0..5): waiting times between commands, in controller cycles
+ * each register holds up to 4 timings, mostly one per byte (bit 0, 8, 16, 24):
+ *   DRAM_TIMING0   tRAS, tRAS(max), tFAW, tWTP
+ *   DRAM_TIMING1   tRC, tRTP, tXP
+ *   DRAM_TIMING2   write->read, read->write, tCL, tCWL
+ *   DRAM_TIMING3   tMOD (bit 0), tMRD (bit 12), tMRW (bit 16)
+ *   DRAM_TIMING4   tRP, tRRD, tCCD, tRCD
+ *   DRAM_TIMING5   tCKE, tCKESR, tCKSRX, tCKSRX again (bit 24, awboot and U-Boot both write it twice)
+ * Source: U-Boot dram_sun20i_d1.c (raw addresses 0x3103058..0x310306c), not in the manual */
+#define MCTL_PHY_DRAM_TIMING0 0x58u
+#define MCTL_PHY_DRAM_TIMING1 0x5cu
+#define MCTL_PHY_DRAM_TIMING2 0x60u
+#define MCTL_PHY_DRAM_TIMING3 0x64u
+#define MCTL_PHY_DRAM_TIMING4 0x68u
+#define MCTL_PHY_DRAM_TIMING5 0x6cu
+
+/* DRAM_TIMING8: awboot calls it "dual rank timing" (timing for switching between 2 ranks)
+ * fixed value 0xf0006610 when dram_clk < 800, no explanation of the bits anywhere
+ * Source: U-Boot dram_sun20i_d1.c (raw address 0x3103078), not in the manual */
+#define MCTL_PHY_DRAM_TIMING8 0x78u
+
+/* PI_TIMING0 (PHY Interface Timing 0): delays between the controller and the PHY
+ *   bits 0-7     write_latency (write command -> data to the PHY)
+ *   bits 16-23   t_rdata_en (read command -> listen to the PHY)
+ *   bit 8 = 1, bits 24+ = 2   fixed in awboot, meaning unknown
+ * Source: U-Boot dram_sun20i_d1.c (raw address 0x3103080), not in the manual */
+#define MCTL_PHY_PI_TIMING0 0x80u
+
+/* REFRESH_TMIING: bits 0-15 = tRFC, bits 16+ = tREFI
+ * REFRESH_CONTROL1: bits 16-27 = tREFI / 2
+ *   probably the start value of the refresh timer for rank 1, so 2 ranks don't refresh at the
+ *   same time (same layout as the Synopsys DDR controller); with 1 rank it doesn't matter
+ * Source: U-Boot dram_sun20i_d1.c (raw addresses 0x3103090, 0x3103094), not in the manual */
+#define MCTL_PHY_REFRESH_TIMING 0x90u
+#define MCTL_PHY_REFRESH_CONTROL1 0x94u
+
+/* GENERAL_CONFIG0 (awboot: PGCR0, PHY General Configuration Register 0)
+ *   bit 26   AC loopback FIFO reset, 0 = held in reset, 1 = running
+ *            (a small buffer in the PHY, kept in reset while the delays get changed)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_GENERAL_CONFIG0 0x100u
 
 /* ODTMAP (On-Die Termination map)
  *   ODT    a resistor INSIDE the DRAM chip, switched on so the data signals
@@ -67,6 +139,31 @@
  * Source: awboot reg-dram.h, not in the manual */
 #define MCTL_PHY_DXnGCR0(x) (0x344u + 0x80u * (x))
 
+/* DATA_IO_CONFIG (awboot: DATX0IOCR / DATX1IOCR, Data lane I/O Configuration Register)
+ *   one register per wire of a data lane, holds that wire's extra delay (eye delay compensation)
+ *   lane   0 = DQ0-7, 1 = DQ8-15, 0x80 apart (like DXnGCR0)
+ *   line   0-7 = DQ0-7 of the lane, 8 = DM, 9 = DQS P, 10 = DQS N (strobe pair)
+ *   bits 1-4   delay from tpr12
+ *   bits 9-12  delay from tpr11
+ * awboot DATX0IOCR(i) = DATA_IO_CONFIG(0, i), DATX1IOCR(i) = DATA_IO_CONFIG(1, i)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_DATA_IO_CONFIG(lane, line) (0x310u + 0x80u * (lane) + 0x4u * (line))
+
+/* DATA_DELAY_LINE6 (awboot: DXnSDLR6, Data lane n Slave Delay Line Register 6)
+ *   bits 25-28   DQS enable delay: when the PHY starts listening to DQS on a read
+ *                (from tpr11 bits 16-19 for lane 0, bits 20-23 for lane 1)
+ * sits right after the lane's DATA_IO_CONFIG registers (DX0 = 0x33c, DX1 = 0x3bc)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_DATA_DELAY_LINE6(lane) (0x33cu + 0x80u * (lane))
+
+/* AC_IO_CONFIG (awboot: ACIOCR1, Address/Command I/O Configuration Register 1)
+ *   one register per address/command wire, holds that wire's extra delay (from tpr10)
+ *   line 2, 3    CK, CS (clock, chip select), delay in bits 8-11
+ *   line 6-26    RAS, CAS and the address lines, delay in bits 8-11
+ *   line 28      delay in bits 4-7
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_AC_IO_CONFIG(line) (0x210u + 0x4u * (line))
+
 /* ---- SYS_CFG (System Configuration) ---- */
 /* LDO and ZQ (resistor) calibration, needed for the DRAM PHY, manual p.168 */
 #define SYS_CFG_BASE 0x03000000u
@@ -81,8 +178,8 @@
  * Allwinner stores a unique chip ID and per-chip calibration values there */
 #define SID_BASE 0x03006000u
 #define SID_CHIPID 0x200u /* bits 0-15: chip variant ID (0x6800 = T113-S4); Source: sunxi tools (xfel), not in the manual */
-#define SID_EFUSE 0x228u /* chip variant info, used to pick the AC remap table */
-#define SID_LDOB 0x21Cu  /* bits 8-15: LDOB calibration value for this chip */
+#define SID_EFUSE 0x228u  /* chip variant info, used to pick the AC remap table */
+#define SID_LDOB 0x21Cu   /* bits 8-15: LDOB calibration value for this chip */
 
 /* ---- AON_CPUCFG (CPU config, always-on domain) ---- */
 /* manual: R_CPUCFG */

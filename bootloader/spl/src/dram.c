@@ -80,7 +80,7 @@ static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
     clk_div = (clk * 2) / 24;
     val = io_read32(CCU_BASE + CCU_PLL_DDR);
     val &= 0xfff800fc;         // clear dividers
-    val |= (clk_div - 1) << 8; // set PLL division
+    val |= (clk_div - 1) << 8; // Set PLL division
     val |= 0xc0000000;         // enable PLL and LDO
     val &= 0xdfffffff;
     io_write32((CCU_BASE + CCU_PLL_DDR), val | 0x20000000);
@@ -111,7 +111,7 @@ static void dram_clock_init(struct dram_config *cfg) {
     io_clearsetbits_le32((CCU_BASE + CCU_DRAM_CLK), (1 << 31) | (1 << 30), (1 << 27));
     timer_udelay(10);
 
-    // set ddr pll clock
+    // Set ddr pll clock
     cfg->dram_clk = ccu_set_pll_ddr_clk(cfg) / 2;
     timer_udelay(100);
     dram_deny_all_master();
@@ -218,10 +218,10 @@ static void dram_vref_init(const struct dram_config *cfg) {
 static void mctl_com_init(const struct dram_config *cfg) {
     uint32_t val;
 
-    // set controller wait time
+    // Set controller wait time
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_DBGCR), 0x3f00, 0x2000);
 
-    // set SDRAM type and data-bus width
+    // Set SDRAM type and data-bus width
     val = ((cfg->dram_type & 0x7) << 16) |        // DRAM type
           ((~cfg->dram_rank_width & 0x1) << 12) | // DQ width
           (1 << 22);                              // burst length 8 (DDR3 always uses BL8)
@@ -231,7 +231,7 @@ static void mctl_com_init(const struct dram_config *cfg) {
 
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_WORK_MODE0), 0x00fff000, val);
 
-    // set rank, banks, rows and page size
+    // Set rank, banks, rows and page size
     // awboot loops twice when 2 ranks have a different layout, I only have 1 rank -> once is enough
     val = (cfg->dram_rank_width >> 12) & 0x3;             // rank
     val |= ((cfg->dram_geometry >> 12) << 2) & 0x4;       // bank - 2
@@ -390,10 +390,10 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
     uint8_t t_mode_write;   // tMRW: LPDDR only, 0 for DDR3
 
     // wait times at power-on, done by the PHY, in DRAM clock cycles (dram_clk in MHz * us = cycles)
-    uint32_t t_init_cke_low;  // tDINIT0: 500 us CKE off after power-on
-    uint32_t t_init_cke_high; // tDINIT1: 360 ns CKE on -> first command
-    uint32_t t_init_reset;    // tDINIT2: 200 us reset pin held low
-    uint32_t t_init_zq;       // tDINIT3: 1 us for the first ZQ calibration
+    uint32_t t_init_clk_en_low;  // tDINIT0: 500 us CLK_EN off after power-on
+    uint32_t t_init_clk_en_high; // tDINIT1: 360 ns CLK_EN on -> first command
+    uint32_t t_init_reset;       // tDINIT2: 200 us reset pin held low
+    uint32_t t_init_zq;          // tDINIT3: 1 us for the first ZQ calibration
 
     t_refresh_cycle = dram_ns_to_cycles(cfg, 350);
     t_refresh_interval = dram_ns_to_cycles(cfg, 7800) / 32 + 1; // +1 from awboot, no reason given there (marked XXX)
@@ -431,8 +431,117 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
     t_mode_to_mode = 4;
     t_mode_write = 0;
 
-    t_init_cke_low = 500 * cfg->dram_clk + 1;         // 500 us
-    t_init_cke_high = 360 * cfg->dram_clk / 1000 + 1; // 360 ns
-    t_init_reset = 200 * cfg->dram_clk + 1;           // 200 us
-    t_init_zq = 1 * cfg->dram_clk + 1;                // 1 us
+    t_init_clk_en_low = 500 * cfg->dram_clk + 1;         // 500 us
+    t_init_clk_en_high = 360 * cfg->dram_clk / 1000 + 1; // 360 ns
+    t_init_reset = 200 * cfg->dram_clk + 1;              // 200 us
+    t_init_zq = 1 * cfg->dram_clk + 1;                   // 1 us
+
+    /* Set mode registers */
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR0), cfg->dram_mr0);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR1), cfg->dram_mr1);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR2), cfg->dram_mr2);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR3), cfg->dram_mr3);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_LP3MR11), cfg->dram_odt_en);
+
+    /* Set DRAM timings */
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING0), (t_write_precharge << 24) | (t_act_window << 16) | (t_max_row_open << 8) | (t_min_row_open << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING1), (t_powerdown_exit << 16) | (t_read_precharge << 8) | (t_row_cycle << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING2), (t_cas_write_latency << 24) | (t_cas_latency << 16) | (t_read2write << 8) | (t_write2read << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING3), (t_mode_write << 16) | (t_mode_to_mode << 12) | (t_mode_update << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING4), (t_ras_cas_delay << 24) | (t_col2col_delay << 16) | (t_row2row_delay << 8) | (t_row_precharge << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING5), (t_selfref_exit_clk << 24) | (t_selfref_exit_clk << 16) | (t_selfref_min << 8) | (t_clk_enable << 0));
+
+    /* Set dual rank timing */
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING8), 0xf000ffff, (cfg->dram_clk < 800) ? 0xf0006610 : 0xf0007610);
+
+    /* PI_TIMING0: timing between controller and PHY
+   PTR3, PTR4: wait times at power-on (DRAM init) */
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_PI_TIMING0), (0x2 << 24) | (t_rdata_en << 16) | (1 << 8) | (write_latency << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_PTR3), (t_init_clk_en_low << 0) | (t_init_clk_en_high << 20));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_PTR4), (t_init_reset << 0) | (t_init_zq << 20));
+
+    /* Set refresh timing & mode */
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_REFRESH_TIMING), (t_refresh_interval << 16) | (t_refresh_cycle << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_REFRESH_CONTROL1), (t_refresh_interval << 15) & 0x0fff0000);
+}
+
+/*
+ * evens out the "skew": the bits of 1 byte arrive at slightly different times
+ * (traces have different lengths, every pin driver is a bit faster or slower)
+ * DQS (data strobe) is the clock that travels with the data, on each edge the bits are read
+ * so every DQ line gets a small extra delay, until all line up and the DQS edge lands in the middle of the "eye":
+ *
+ *   ___________        ___________
+ *  /           \      /
+ * X     eye     X----X     eye
+ *  \___________/      \___________
+ *        ^
+ *   sample here (middle = safest, at the X the signal is still switching)
+ *
+ * fixed values from the board maker, nothing is measured here:
+ *   tpr11, tpr12   data lines (DQ, DM) and DQS, 4 bit per group
+ *   tpr10          address/command lines
+ * the training in mctl_channel_init later fine-tunes on top of these
+ */
+static void eye_delay_compensation(const struct dram_config *cfg) {
+    uint32_t delay, i;
+
+    // DQ0-7 + DM delay, lane 0
+    delay = (cfg->dram_tpr11 & 0xf) << 9;
+    delay |= (cfg->dram_tpr12 & 0xf) << 1;
+
+    for (i = 0; i < 9; i++)
+        io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(0, i)), delay);
+
+    // same with lane 1
+    delay = (cfg->dram_tpr11 & 0xf0) << 5;
+    delay |= (cfg->dram_tpr12 & 0xf0) >> 3;
+    for (i = 0; i < 9; i++)
+        io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(1, i)), delay);
+
+    // General Config 0: assert AC (address/command) loopback FIFO reset
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1 << 26);
+
+    // DQS0 read and write delay
+    delay = (cfg->dram_tpr11 & 0xf0000) >> 7;
+    delay |= (cfg->dram_tpr12 & 0xf0000) >> 15;
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(0, 9)), delay);  // +
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(0, 10)), delay); // -
+
+    // same with DQS1
+    delay = (cfg->dram_tpr11 & 0xf00000) >> 11;
+    delay |= (cfg->dram_tpr12 & 0xf00000) >> 19;
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(1, 9)), delay);  // +
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(1, 10)), delay); // -
+
+    // DQS0 enable delay (when to start listening to DQS)
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_DELAY_LINE6(0)), (cfg->dram_tpr11 & 0xf0000) << 9);
+
+    // same with DQS1
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_DELAY_LINE6(1)), (cfg->dram_tpr11 & 0xf00000) << 5);
+
+    // General Config 0: release FIFO reset
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1 << 26);
+
+    timer_udelay(1);
+
+    delay = (cfg->dram_tpr10 & 0xf0) << 4;
+
+    // Set RAS, CAS and AC delay
+    for (i = 6; i < 27; i++)
+        io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(i)), delay);
+
+    // Set CLK CS (chip select) delay
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(2)), (cfg->dram_tpr10 & 0x0f) << 8);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(3)), (cfg->dram_tpr10 & 0x0f) << 8);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(28)), (cfg->dram_tpr10 & 0xf00) >> 4);
+}
+
+static uint32_t mctl_channel_init(uint32_t channel_index, const struct dram_config *cfg) {
+    uint32_t val, dqs_gating_mode;
+
+    dqs_gating_mode = (cfg->dram_tpr13 & 0xc) >> 2;
+
+    // set DDR-clk to half of CPU-clk
+    io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_TIMER), 0xfff, (cfg->dram_clk / 2) - 1);
 }
