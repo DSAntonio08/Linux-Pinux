@@ -26,6 +26,11 @@
  * Source: awboot reg-dram.h, not in the manual */
 #define MCTL_COM_TIMER 0x0cu
 
+/* CCCR (awboot: CCCR, name not explained anywhere)
+ *   bit 31   set once at the end of mctl_channel_init, meaning unknown
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_COM_CCCR 0x14u
+
 /* WORK_MODE0: what DRAM is attaced (type, bus width, ranks, banks, rows, page size) */
 #define MCTL_COM_WORK_MODE0 0x00u
 #define MCTL_COM_WORK_MODE1 0x04u
@@ -54,6 +59,32 @@
 #define MCTL_PHY_CLKEN 0x0c
 #define MCTL_PHY_IOVREF_CR0 0x110u
 #define MCTL_PHY_IOVREF_CR1 0x114u
+
+/* INIT (awboot: PIR, PHY Initialization Register): the start button for the init steps
+ *   bit 0   GO, starts all steps selected in the other bits (write them first, then set bit 0)
+ *   bit 1   ZQ calibration (driver strength against the 240 ohm resistor)
+ *   bit 4   PLL init (the PHY's own clock)
+ *   bit 5   delay line calibration
+ *   bit 6   PHY reset
+ *   bit 7   DRAM reset (DDR3 only, RESET pin)
+ *   bit 8   DRAM init (power-on routine with PTR3/4, sends MR0-3)
+ *   bit 10  DQS gate training (only dqs_gating_mode 1)
+ * mine (DDR3, mode 0, cold boot): 0x1f2 = bits 1, 4, 5, 6, 7, 8, no training
+ * Source: awboot reg-dram.h + its comments, bit order like the Synopsys PHY, not in the manual */
+#define MCTL_PHY_INIT 0x00u
+
+/* GENERAL_STATUS0 (awboot: PGSR0, PHY General Status Register 0): result of the PIR steps
+ *   bit 0    IDONE, 1 = all PIR steps finished (poll this after GO)
+ *   bit 20   ZQ calibration error (check the external 240 ohm resistor)
+ *   bit 22   DQS gate training error (only used by awboot's auto-scan)
+ * Source: awboot reg-dram.h + dram.c, not in the manual */
+#define MCTL_PHY_GENERAL_STATUS0 0x10u
+
+/* STATUS (awboot: STATR): what mode the controller is in
+ *   bits 0-2   1 = normal, 3 = self-refresh (like the Synopsys controller's STAT)
+ * after the init: wait until bit 0 = 1 (normal)
+ * Source: awboot reg-dram.h + dram.c, not in the manual */
+#define MCTL_PHY_STATUS 0x18u
 
 /* DRAM_MR0..3: values for the DRAM's mode registers, the PHY sends them INTO the DRAM chip at init
  *   register   the outbox in the PHY, which one decides where it arrives (PHY MR0 -> DRAM chip MR0, ...)
@@ -107,6 +138,12 @@
  * Source: U-Boot dram_sun20i_d1.c (raw address 0x3103080), not in the manual */
 #define MCTL_PHY_PI_TIMING0 0x80u
 
+/* REFRESH_CONTROL0 (awboot: RFSHCTL0, Refresh Control Register 0)
+ *   bit 31   set, wait 10 us, clear again at the end of mctl_channel_init, meaning unknown
+ *            (looks like a restart pulse for the refresh logic, not confirmed)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_REFRESH_CONTROL0 0x8cu
+
 /* REFRESH_TMIING: bits 0-15 = tRFC, bits 16+ = tREFI
  * REFRESH_CONTROL1: bits 16-27 = tREFI / 2
  *   probably the start value of the refresh timer for rank 1, so 2 ranks don't refresh at the
@@ -115,11 +152,31 @@
 #define MCTL_PHY_REFRESH_TIMING 0x90u
 #define MCTL_PHY_REFRESH_CONTROL1 0x94u
 
+/* DATA_TRAINING_CONFIG (awboot: DTCR, Data Training Configuration Register)
+ *   settings for the PHY's data training (which ranks, how)
+ *   bits 24-27   probably rank enable: 1 = rank 0 only, 3 = rank 0 + 1 (Synopsys layout)
+ *   bits 0-3     unknown, awboot writes 7 for 1 rank, 1 for 2 ranks
+ * 1 rank (para2 bit 12 = 0) -> 0x01000007
+ * Source: U-Boot dram_sun20i_d1.c (raw address 0x31030c0), not in the manual */
+#define MCTL_PHY_DATA_TRAINING_CONFIG 0xc0u
+
 /* GENERAL_CONFIG0 (awboot: PGCR0, PHY General Configuration Register 0)
  *   bit 26   AC loopback FIFO reset, 0 = held in reset, 1 = running
  *            (a small buffer in the PHY, kept in reset while the delays get changed)
  * Source: awboot reg-dram.h, not in the manual */
 #define MCTL_PHY_GENERAL_CONFIG0 0x100u
+
+/* GENERAL_CONFIG2 (awboot: PGCR2, PHY General Configuration Register 2)
+ *   bits 8-11   set to 3 in awboot, meaning unknown
+ *               (U-Boot's comment calls it "MRCTRL0", but the address is PGCR2)
+ * Source: U-Boot dram_sun20i_d1.c (raw address 0x3103108), not in the manual */
+#define MCTL_PHY_GENERAL_CONFIG2 0x108u
+
+/* GENERAL_CONFIG3 (awboot: PGCR3, PHY General Configuration Register 3)
+ *   bits 25-26   cleared at the end of mctl_channel_init, meaning unknown
+ *                (only set to something else in awboot's standby wake-up path)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_GENERAL_CONFIG3 0x10cu
 
 /* ODTMAP (On-Die Termination map)
  *   ODT    a resistor INSIDE the DRAM chip, switched on so the data signals
@@ -129,6 +186,16 @@
  * value from the rank field in WORK_MODE0 bit 0: 1 rank -> 0x201, 2 ranks -> 0x303
  * Source: awboot reg-dram.h, not in the manual */
 #define MCTL_PHY_ODTMAP 0x120u
+
+/* ZQ_CONFIG (awboot: ZQCR, ZQ Configuration Register)
+ *   ZQ           calibration of the pin drivers and ODT against the external 240 ohm resistor,
+ *                so the signal strength stays right (temperature, voltage)
+ *   bits 0-23    ZQ value from the board maker (dram_zq, 0x7b7bfb)
+ *   bit 25       set in awboot, meaning unknown
+ *   bit 31       set at the end of the init in awboot ("disable ZQ calibration")
+ * PIR runs the ZQ calibration, error = PGSR0 bit 20
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_ZQ_CONFIG 0x140u
 
 /* DXnGCR0 (Data lane n, General Configuration Register 0)
  *   DX     data lane = 8 data lines (DQ) + 1 data mask (DM) + 1 strobe pair (DQS)
@@ -155,6 +222,13 @@
  * sits right after the lane's DATA_IO_CONFIG registers (DX0 = 0x33c, DX1 = 0x3bc)
  * Source: awboot reg-dram.h, not in the manual */
 #define MCTL_PHY_DATA_DELAY_LINE6(lane) (0x33cu + 0x80u * (lane))
+
+/* AC_IO_GENERAL_CONFIG (awboot: ACIOCR0, Address/Command I/O Configuration Register 0)
+ *   one register for ALL address/command wires (not one per wire like AC_IO_CONFIG)
+ *   bit 1   set in mctl_channel_init, meaning unknown
+ * careful: NOT the same as AC_IO_CONFIG(0) = 0x210, that's awboot's ACIOCR1(0)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_AC_IO_GENERAL_CONFIG 0x208u
 
 /* AC_IO_CONFIG (awboot: ACIOCR1, Address/Command I/O Configuration Register 1)
  *   one register per address/command wire, holds that wire's extra delay (from tpr10)

@@ -1,5 +1,4 @@
 #include "../include/dram.h"
-#include "../include/clock.h"
 #include "../include/dram_regs.h"
 #include "../include/io.h"
 #include "../include/t113_regs.h"
@@ -90,7 +89,7 @@ static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
         ;
     timer_udelay(20);
 
-    clock_enable_pll(0x08000000);
+    io_setbits_le32((CCU_BASE + CCU_PLL_DDR), PLL_OUTPUT_GATE); // open the PLL output gate
 
     // turn clock gate on
     val = io_read32((CCU_BASE + CCU_DRAM_CLK));
@@ -481,7 +480,7 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
  * fixed values from the board maker, nothing is measured here:
  *   tpr11, tpr12   data lines (DQ, DM) and DQS, 4 bit per group
  *   tpr10          address/command lines
- * the training in mctl_channel_init later fine-tunes on top of these
+ * must be set before PIR in mctl_channel_init, in my mode (dqs_gating_mode 0) no training runs
  */
 static void eye_delay_compensation(const struct dram_config *cfg) {
     uint32_t delay, i;
@@ -538,10 +537,80 @@ static void eye_delay_compensation(const struct dram_config *cfg) {
 }
 
 static uint32_t mctl_channel_init(uint32_t channel_index, const struct dram_config *cfg) {
-    uint32_t val, dqs_gating_mode;
-
-    dqs_gating_mode = (cfg->dram_tpr13 & 0xc) >> 2;
+    uint32_t val;
 
     // set DDR-clk to half of CPU-clk
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_TIMER), 0xfff, (cfg->dram_clk / 2) - 1);
+
+    // undocumented: I cannot tell you why we set this
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 0xf00, 0x300);
+
+    if (cfg->dram_odt_en)
+        val = 0;
+    else
+        val = (1 << 5);
+
+    // Data lane 0 + 1 Config Register 0
+    if (cfg->dram_clk > 672) {
+        io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(0)), 0xf63e, val);
+        io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(0)), 0x400);
+        io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(1)), 0xf63e, val);
+    } else {
+        io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(0)), 0xf03e, val);
+        io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DXnGCR0(1)), 0xf03e, val);
+    }
+
+    // MCTL_PHY_BASE + MCTL_PHY_AC_IO_GENERAL_CONFIG undocumented: couldn't tell you either.
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_GENERAL_CONFIG), 1 << 1);
+
+    /*
+     * Fixed delays from the board maker, must be set BEFORE PIR,
+     * because PIR is the first time the PHY talks to the DRAM (DRAM init sends MR0-3 over the AC lines)
+     */
+    eye_delay_compensation(cfg);
+
+    /*
+     * DQS gating: the gate is the window where the PHY listens to DQS on a read,
+     * outside of it DQS floats and noise could be read as edges.
+     * Mode 0 (mine): the PHY handles the gate by itself (GENERAL_CONFIG2 bits 6-7)
+     */
+
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 0x40);
+    timer_udelay(10);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 0xc0);
+
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_TRAINING_CONFIG), 0x0fffffff, (cfg->dram_rank_width & (1 << 12) ? 0x03000001 : 0x01000007));
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_ZQ_CONFIG), 0x3ffffff, (cfg->dram_zq & 0x00ffffff) | (1 << 25));
+
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_INIT), 0x1f2);    // select the steps
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_INIT), 0x1); // GO
+
+    timer_udelay(10);
+
+    // Wait until all PIR steps are done (IDONE)
+    while ((io_read32(MCTL_PHY_BASE + MCTL_PHY_GENERAL_STATUS0) & 0x1) == 0) {
+    }
+
+    // ZQ calibration error
+    if (io_read32(MCTL_PHY_BASE + MCTL_PHY_GENERAL_STATUS0) & (1 << 20)) {
+        uart_puts("ZQ calibration error, check external 240 ohm resistor\r\n");
+        return 1;
+    }
+
+    // Wait until the controller is in normal mode
+    while ((io_read32(MCTL_PHY_BASE + MCTL_PHY_STATUS) & 0x1) == 0) {
+    }
+
+    // undocumented: refresh pulse, then CCCR bit 31
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_REFRESH_CONTROL0), (1u << 31));
+    timer_udelay(10);
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_REFRESH_CONTROL0), (1u << 31));
+    timer_udelay(10);
+    io_setbits_le32((MCTL_COM_BASE + MCTL_COM_CCCR), (1u << 31));
+    timer_udelay(10);
+
+    // undocumented: clear GENERAL_CONFIG3 bits 25-26
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG3), 0x06000000);
+
+    return 0;
 }

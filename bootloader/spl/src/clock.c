@@ -64,7 +64,7 @@ int clock_enable_pll(uint32_t offset) {
     int timeout = 2000;
     while ((io_read32(addr) & PLL_LOCK) == 0) {
         if (timeout == 0)
-            return -1;
+            return 1;
         timer_udelay(1);
         timeout--;
     }
