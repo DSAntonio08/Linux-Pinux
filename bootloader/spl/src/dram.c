@@ -57,6 +57,12 @@ static uint32_t dram_ns_to_cycles(const struct dram_config *cfg, uint32_t nanose
     return DIV_ROUND_UP(ctrl_freq * nanosecs, 1000);
 }
 
+/*
+ * master = hardware that reads/writes DRAM on its own (CPU, DMA, display, USB, ...)
+ * MAER0..2 = 1 bit per master, 1 = may use the DRAM, 0 = blocked (bit meanings not documented)
+ * like a door per master, not the whole bus: the bus itself keeps running
+ * allow: every master may use the DRAM again, called at the end in dram_finish_init
+ */
 static void dram_allow_all_master(void) {
     io_write32((MCTL_COM_BASE + MCTL_COM_MAER0), ~0);
     io_write32((MCTL_COM_BASE + MCTL_COM_MAER1), 0xff);
@@ -64,6 +70,10 @@ static void dram_allow_all_master(void) {
     timer_udelay(10);
 }
 
+/*
+ * deny: blocks all masters except master 0 (MAER0 = 1, probably the CPU), called in dram_clock_init
+ * so no other hardware tries to use the DRAM while it's not set up yet
+ */
 static void dram_deny_all_master(void) {
     io_write32((MCTL_COM_BASE + MCTL_COM_MAER0), 1);
     io_write32((MCTL_COM_BASE + MCTL_COM_MAER1), 0);
@@ -114,7 +124,7 @@ static int dram_clock_init(struct dram_config *cfg) {
     io_clearbits_le32((CCU_BASE + CCU_DRAM_BGR), 0x10001);
     // DRAM_CLK_REG: bit 31 = clock gate off, bit 30 = module reset asserted (0 = held in reset), bit 27 = update (apply the change)
     // bit 30 may be "reserved" in the T113 manual, name from U-Boot's H6 CCU (DRAM_MOD_RESET), Allwinner's DRAM code uses it on the T113 too
-    io_clearsetbits_le32((CCU_BASE + CCU_DRAM_CLK), (1 << 31) | (1 << 30), (1 << 27));
+    io_clearsetbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1 << 30), (1 << 27));
     timer_udelay(10);
 
     // Set ddr pll clock
@@ -140,7 +150,7 @@ static int dram_clock_init(struct dram_config *cfg) {
     io_setbits_le32((CCU_BASE + CCU_DRAM_BGR), 1);
 
     // turn dram clock gate on, trigger sdram clock gate update
-    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), (1 << 31) | (1 << 27));
+    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1 << 27));
     timer_udelay(5);
 
     // memory Controller clock enable
@@ -606,6 +616,150 @@ static uint32_t mctl_channel_init(const struct dram_config *cfg) {
 
     // undocumented: clear GENERAL_CONFIG3 bits 25-26
     io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG3), 0x06000000);
+
+    return 0;
+}
+
+static uint32_t mctl_core_init(struct dram_config *cfg) {
+    if (dram_clock_init(cfg))
+        return 1;
+    dram_vref_init(cfg);
+    mctl_com_init(cfg);
+    mctl_phy_addrcomm_remapping(cfg);
+    mctl_set_timing_params(cfg);
+    return mctl_channel_init(cfg);
+}
+
+/*
+ * reads back what mctl_com_init wrote into WORK_MODE0 and calculates the DRAM size in MB
+ * (awboot: calculate_rank_size + DRAMC_get_dram_size, merged: I only have 1 rank, so rank size = whole DRAM)
+ *   size = page size * rows * banks
+ *   page = 1 row of 1 bank, all columns together (mine: 1024 columns * 2 bytes = 2 KB)
+ *   mine: 2048 B * 8192 rows * 8 banks = 134217728 B = 128 MB
+ * the register doesn't store the sizes, it stores their exponent (2^x), each minus a small number:
+ *   bits 8-11   page size: 2048 = 2^11 -> stored 11 - 3 = 8
+ *   bits 4-7    rows:      8192 = 2^13 -> stored 13 - 1 = 12
+ *   bits 2-3    banks:        8 = 2^3  -> stored  3 - 2 = 1
+ * so: add the small number back, then 1 << exponent = 2^exponent = the real size
+ * (awboot adds the exponents instead of multiplying, same result: 2^a * 2^b = 2^(a+b))
+ */
+static uint32_t dram_get_size(void) {
+    uint32_t register_val = io_read32(MCTL_COM_BASE + MCTL_COM_WORK_MODE0);
+
+    uint32_t page_size = 1u << (((register_val >> 8) & 0xf) + 3); // 2^11 = 2048 bytes
+    uint32_t rows = 1u << (((register_val >> 4) & 0xf) + 1);      // 2^13 = 8192
+    uint32_t banks = 1u << (((register_val >> 2) & 0x3) + 2);     // 2^3  = 8
+
+    uint32_t size = page_size * rows * banks; // in bytes, 134217728
+
+    return size / (1024 * 1024); // bytes -> MB, 128
+}
+
+static void dram_finish_init(void) {
+    /* Auto self-refresh off, tpr13 bit 30 = 0 (normal refresh keeps running) */
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_AUTO_SELFREF_TIMER), 0xffff);
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_POWER_CONTROL), 0x1);
+
+    /* Clear HDR/DDR dynamic (undocumented), tpr13 bit 9 = 0 */
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 0xf000);
+
+    /* Disable the PHY's automatic ZQ calibration, it already ran in PIR (mctl_channel_init) */
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_ZQ_CONFIG), 1u << 31);
+
+    /* VTF feature on (undocumented), tpr13 bit 8 = 1 */
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_VTF_CONFIG), 0x300);
+
+    /*
+     * Set PAD hold bit (undocumented), tpr13 bit 16 = 0
+     * pad = the chip's metal contact behind a pin, "hold" = freeze the pin levels (for deep sleep)
+     * what bit 13 = 1 exactly means is unknown, done like awboot
+     */
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 1 << 13);
+
+    dram_allow_all_master();
+}
+
+static uint32_t dram_simple_wr_test(uint32_t mem_mb, uint32_t len) {
+    uint32_t offset_to_middle = (mem_mb / 2) << 20; // half of the DRAM in bytes (awboot: << 18 = in words)
+    uint32_t pattern1 = 0x01234567;                 // pattern2 with every bit flipped (~pattern2)
+    uint32_t pattern2 = 0xfedcba98;                 // ~pattern1, so every data line gets tested with a 0 and a 1
+    uintptr_t addr;                                 // I don't need a pointer, bc other then awboot I use io_read32/write32
+    uint32_t ret_value_check1;
+    uint32_t ret_value_check2;
+    uint32_t i;
+
+    addr = DRAM_START;
+    for (i = 0; i != len; i++) {
+        io_write32(addr + 4 * i, pattern1 + i);
+        io_write32(addr + offset_to_middle + 4 * i, pattern2 + i);
+    }
+
+    for (i = 0; i != len; i++) {
+        // check the start block: word i must be pattern1 + i
+        ret_value_check1 = io_read32(addr + 4 * i); // inc. by word - ARM word not x86_64 word
+        ret_value_check2 = pattern1 + i;
+        if (ret_value_check1 != ret_value_check2) {
+            uart_puts("DRAM: simple test FAILED!\r\n");
+            uart_puthex32(ret_value_check1);
+            uart_puts(" != ");
+            uart_puthex32(ret_value_check2);
+            uart_puts(" at address 0x");
+            uart_puthex32(addr + 4 * i);
+            uart_puts("\r\n");
+
+            return 1;
+        }
+
+        // check the middle block: word i must be pattern2 + i
+        ret_value_check1 = io_read32(addr + offset_to_middle + 4 * i);
+        ret_value_check2 = pattern2 + i;
+        if (ret_value_check1 != ret_value_check2) {
+            uart_puts("DRAM: simple test FAILED!\r\n");
+            uart_puthex32(ret_value_check1);
+            uart_puts(" != ");
+            uart_puthex32(ret_value_check2);
+            uart_puts(" at address 0x");
+            uart_puthex32(addr + offset_to_middle + 4 * i);
+            uart_puts("\r\n");
+
+            return 1;
+        }
+    }
+    uart_puts("DRAM: simple test SUCCESS!\r\n");
+    return 0;
+}
+
+uint32_t dram_init(void) {
+    /*
+     * Allwinner's parameters for the T113-S3 with its built-in 128 MB DDR3
+     * same as awboot (sunxi_dram_init) and U-Boot mangopi_mq_r_defconfig, only para1/para2 are calculated by me
+     */
+    struct dram_config cfg = {
+        .dram_clk = 792,           // MHz, PLL only makes 24 MHz steps (PLL_DDR = 2 * dram_clk), biggest <= 800
+        .dram_type = 3,            // DDR3
+        .dram_zq = 0x7b7bfb,       // lower 24 bits of ZQ_CONFIG, driver/termination strength (bits undocumented)
+        .dram_odt_en = 0,          // termination on the T113 side off
+        .dram_geometry = 0x10d2,   // para1: 2 KB page, 13 rows, 8 banks
+        .dram_rank_width = 0x0000, // para2: 1 rank, full DQ (16 bit)
+        .dram_mr0 = 0x1c70,        // burst length 8, CL 11, write recovery 12, fast power-down exit
+        .dram_mr1 = 0x42,          // driver 34 ohm, termination inside the DRAM 120 ohm
+        .dram_mr2 = 0x18,          // CWL 8
+        .dram_mr3 = 0,             // no special modes
+        .dram_tpr5 = 0x48484848,   // Vref data lines (roughly the middle)
+        .dram_tpr6 = 0x48,         // Vref address/command lines
+        .dram_tpr10 = 0,           // no extra delays on the address/command lines
+        .dram_tpr11 = 0x340000,    // eye delay: DQS0/DQS1 enable delay 4 / 3
+        .dram_tpr12 = 0x46,        // eye delay: lane 0 DQ 6, lane 1 DQ 4
+        .dram_tpr13 = 0x34000100,  // flags: bit 8 VTF on, bit 28 write test (bits 26, 29 unused by my code)
+    };
+    dram_zq_init(&cfg);
+    if ((mctl_core_init(&cfg)) != 0)
+        return 1;
+    uint32_t size = dram_get_size();
+
+    dram_finish_init();
+    if ((dram_simple_wr_test(size, 4096)) != 0)
+        return 1;
 
     return 0;
 }

@@ -56,7 +56,7 @@ sudo dd if=build/spl-boot.bin of=/dev/<sd-card> bs=1024 seek=8
 - [x] Drive GPIOs (blinking LED on PG13).
 - [x] Check that the timer really runs at 24 MHz.
 - [x] Set up clocks and PLLs.
-- [ ] Initialize DRAM.
+- [x] Initialize DRAM.
 - [ ] Load the next bootloader stage from microSD.
 - [ ] Develop the bootloader until it can start Linux.
 - [ ] Build a minimal user space with my own init program, shell and basic utilities.

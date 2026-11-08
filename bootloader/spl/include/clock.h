@@ -7,5 +7,5 @@
 #include "../include/t113_regs.h"
 #include <stdint.h>
 
-void clock_init_uart();
+void clock_init_uart(void);
 int clock_enable_pll(uint32_t offset);

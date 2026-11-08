@@ -11,7 +11,7 @@
  *   5. read following 'actual' Bootloader into DRAM
  *   6. jump to actual Bootloader
  *
- * Right now: only 1-3, then sends "HELLO WORLD" over UART1 forever
+ * Right now: only 1-4 (3 & 4 not tested yet as I don't have any UART female-Header... arrives around 25th November )
  */
 
 #include "../include/clock.h"
@@ -20,6 +20,7 @@
 #include "../include/t113_regs.h"
 #include "../include/uart.h"
 #include "../include/timer.h"
+#include "../include/dram.h"
 
 static void dump_clock_state(void);
 
@@ -27,8 +28,8 @@ int main(void) {
     clock_init_uart();
     // everything UART except clock
     uart_init();
-
     gpio_set_func(13, 1); // PG13 -> output
+    dram_init();
 
     while (1) {
         // uart_puts("Hello World\r\n");

@@ -73,6 +73,12 @@
  * Source: awboot reg-dram.h + its comments, bit order like the Synopsys PHY, not in the manual */
 #define MCTL_PHY_INIT 0x00u
 
+/* POWER_CONTROL (awboot: PWRCTL, Power Control Register)
+ *   bit 0   auto self-refresh on/off (1 = the DRAM goes to sleep by itself when nobody uses it)
+ * off for me (tpr13 bit 30 = 0), cleared in dram_finish_init
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_POWER_CONTROL 0x04u
+
 /* GENERAL_STATUS0 (awboot: PGSR0, PHY General Status Register 0): result of the PIR steps
  *   bit 0    IDONE, 1 = all PIR steps finished (poll this after GO)
  *   bit 20   ZQ calibration error (check the external 240 ohm resistor)
@@ -151,6 +157,19 @@
  * Source: U-Boot dram_sun20i_d1.c (raw addresses 0x3103090, 0x3103094), not in the manual */
 #define MCTL_PHY_REFRESH_TIMING 0x90u
 #define MCTL_PHY_REFRESH_CONTROL1 0x94u
+
+/* AUTO_SELFREF_TIMER (awboot: ASRTC, Auto Self-Refresh Timer Control)
+ *   bits 0-15   idle time before the DRAM goes into self-refresh by itself (probably)
+ * auto self-refresh is off for me (tpr13 bit 30 = 0), only cleared in dram_finish_init
+ * not the same as normal refresh (REFRESH_TIMING), that one always runs
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_AUTO_SELFREF_TIMER 0xa0u
+
+/* VTF_CONFIG (awboot: VTFCR)
+ *   bits 8-9   set when tpr13 bit 8 = 1 (mine: yes), meaning unknown
+ *   "VTF" is not explained anywhere, maybe voltage/temperature compensation (not confirmed)
+ * Source: awboot reg-dram.h, not in the manual */
+#define MCTL_PHY_VTF_CONFIG 0xb8u
 
 /* DATA_TRAINING_CONFIG (awboot: DTCR, Data Training Configuration Register)
  *   settings for the PHY's data training (which ranks, how)
