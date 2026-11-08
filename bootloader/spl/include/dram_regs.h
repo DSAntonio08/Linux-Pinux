@@ -241,7 +241,6 @@
 /* ---- SYS_CFG (System Configuration) ---- */
 /* LDO and ZQ (resistor) calibration, needed for the DRAM PHY, manual p.168 */
 #define SYS_CFG_BASE 0x03000000u
-#define SYS_LDO_CTRL 0x150u
 #define ZQ_CAL_CTRL 0x160u   /* RESCAL_CTRL_REG, start of the resistor calibration */
 #define ZQ_RES_CTRL 0x168u   /* RES240_CTRL_REG, manual control of the 240 ohm resistor */
 #define ZQ_RES_STATUS 0x16Cu /* RESCAL_STATUS_REG, calibration result */
@@ -253,7 +252,6 @@
 #define SID_BASE 0x03006000u
 #define SID_CHIPID 0x200u /* bits 0-15: chip variant ID (0x6800 = T113-S4); Source: sunxi tools (xfel), not in the manual */
 #define SID_EFUSE 0x228u  /* chip variant info, used to pick the AC remap table */
-#define SID_LDOB 0x21Cu   /* bits 8-15: LDOB calibration value for this chip */
 
 /* ---- AON_CPUCFG (CPU config, always-on domain) ---- */
 /* manual: R_CPUCFG */

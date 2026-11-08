@@ -84,9 +84,14 @@ static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
     val &= 0xdfffffff;
     io_write32((CCU_BASE + CCU_PLL_DDR), val | 0x20000000);
 
-    // wait for PLL to lock
-    while ((io_read32((CCU_BASE + CCU_PLL_DDR)) & 0x10000000) == 0)
-        ;
+    // wait for PLL to lock, max 2 ms (like clock_enable_pll), 0 = failed
+    int timeout = 2000;
+    while ((io_read32((CCU_BASE + CCU_PLL_DDR)) & 0x10000000) == 0) {
+        if (timeout == 0)
+            return 0;
+        timer_udelay(1);
+        timeout--;
+    }
     timer_udelay(20);
 
     io_setbits_le32((CCU_BASE + CCU_PLL_DDR), PLL_OUTPUT_GATE); // open the PLL output gate
@@ -100,7 +105,9 @@ static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
     return clk_div * 24;
 }
 
-static void dram_clock_init(struct dram_config *cfg) {
+static int dram_clock_init(struct dram_config *cfg) {
+    uint32_t clk;
+
     // hold MBUS in reset
     io_clearbits_le32((CCU_BASE + CCU_MBUS_CLK), (1 << 30));
 
@@ -111,7 +118,12 @@ static void dram_clock_init(struct dram_config *cfg) {
     timer_udelay(10);
 
     // Set ddr pll clock
-    cfg->dram_clk = ccu_set_pll_ddr_clk(cfg) / 2;
+    clk = ccu_set_pll_ddr_clk(cfg);
+    if (clk == 0) {
+        uart_puts("PLL_DDR lock timeout\r\n");
+        return 1;
+    }
+    cfg->dram_clk = clk / 2;
     timer_udelay(100);
     dram_deny_all_master();
 
@@ -134,6 +146,8 @@ static void dram_clock_init(struct dram_config *cfg) {
     // memory Controller clock enable
     io_write32((MCTL_PHY_BASE + MCTL_PHY_CLKEN), 0x8000);
     timer_udelay(10);
+
+    return 0;
 }
 
 /*
@@ -161,39 +175,6 @@ static void dram_zq_init(const struct dram_config *cfg) {
         uart_puthex32(io_read32(SYS_CFG_BASE + ZQ_RES_STATUS));
         uart_puts("\r\n");
     }
-}
-
-/*
- * LDO = Low-DropOut regulator: a small voltage regulator built into the T113
- * it turns an existing supply into a lower, stable voltage
- * the T113 has two of them, both fed from LDO-IN (3.3 V):
- *   LDOA  1.8 V for IO and analog parts
- *   LDOB  VCC-DRAM, the supply of the DRAM IO and the DDR3 chip itself
- * after reset LDOB only gives 1.35 V, but DDR3 needs 1.5 V (datasheet: 1.425-1.575 V)
- * so it has to be raised before the DRAM is used ("VCC-DRAM needs be stable before SDRAM driver initialization")
- * SYS_LDO_CTRL bits 8-15 = LDOB_TRIM, 1.167 V + value * 13.3 mV:
- *   0x0E (14) = 1.353 V  reset default
- *   0x19 (25) = 1.5 V    DDR3   <- what I set
- *   0x2F (47) = 1.8 V    DDR2
- * every chip is a little different, so Allwinner burns a correction value for LDOB into the eFuse (SID) at the factory
- * if that value exists, it replaces the default (values above 0x20 are lowered by 0x16 = 22 steps = 0.3 V,
- * which turns a 1.8 V trim into 1.5 V: 0x2F - 0x16 = 0x19)
- */
-static void dram_ldo_init(void) {
-    uint32_t ldo_val = 25;
-
-    io_clearsetbits_le32((SYS_CFG_BASE + SYS_LDO_CTRL), 0x20ff00, ldo_val << 8);
-    timer_udelay(1);
-
-    uint32_t cal = (io_read32(SID_BASE + SID_LDOB) & 0xff00) >> 8;
-
-    if (cal == 0)
-        return;
-
-    if (cal > 0x20)
-        cal -= 0x16;
-
-    io_clearsetbits_le32((SYS_CFG_BASE + SYS_LDO_CTRL), 0xff00, cal << 8);
 }
 
 /*
@@ -402,18 +383,17 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
     t_row2row_delay = dram_ns_to_cycles(cfg, 10);
     t_powerdown_exit = dram_ns_to_cycles(cfg, 10);
 
-    if (cfg->dram_clk <= 800) {
-        t_act_window = dram_ns_to_cycles(cfg, 50);
-        t_ras_cas_delay = dram_ns_to_cycles(cfg, 15);
-        t_row_precharge = dram_ns_to_cycles(cfg, 15);
-        t_row_cycle = dram_ns_to_cycles(cfg, 53);
-        t_min_row_open = dram_ns_to_cycles(cfg, 38);
+    // awboot's values for dram_clk <= 800 (mine: 792), the > 800 branch is dropped
+    t_act_window = dram_ns_to_cycles(cfg, 50);
+    t_ras_cas_delay = dram_ns_to_cycles(cfg, 15);
+    t_row_precharge = dram_ns_to_cycles(cfg, 15);
+    t_row_cycle = dram_ns_to_cycles(cfg, 53);
+    t_min_row_open = dram_ns_to_cycles(cfg, 38);
 
-        t_cas_latency = 6;
-        write_latency = 2;
-        t_cas_write_latency = 4;
-        t_rdata_en = 4;
-    }
+    t_cas_latency = 6;
+    write_latency = 2;
+    t_cas_write_latency = 4;
+    t_rdata_en = 4;
 
     t_max_row_open = cfg->dram_clk / 30;
     t_write_precharge = t_cas_write_latency + 2 + t_write_read_delay; // tCWL + BL/2 + tWTR
@@ -440,7 +420,7 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
     io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR1), cfg->dram_mr1);
     io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR2), cfg->dram_mr2);
     io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_MR3), cfg->dram_mr3);
-    io_write32((MCTL_PHY_BASE + MCTL_PHY_LP3MR11), cfg->dram_odt_en);
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_LP3MR11), 0);
 
     /* Set DRAM timings */
     io_write32((MCTL_PHY_BASE + MCTL_PHY_DRAM_TIMING0), (t_write_precharge << 24) | (t_act_window << 16) | (t_max_row_open << 8) | (t_min_row_open << 0));
@@ -536,8 +516,9 @@ static void eye_delay_compensation(const struct dram_config *cfg) {
     io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(28)), (cfg->dram_tpr10 & 0xf00) >> 4);
 }
 
-static uint32_t mctl_channel_init(uint32_t channel_index, const struct dram_config *cfg) {
+static uint32_t mctl_channel_init(const struct dram_config *cfg) {
     uint32_t val;
+    int timeout;
 
     // set DDR-clk to half of CPU-clk
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_TIMER), 0xfff, (cfg->dram_clk / 2) - 1);
@@ -587,8 +568,15 @@ static uint32_t mctl_channel_init(uint32_t channel_index, const struct dram_conf
 
     timer_udelay(10);
 
-    // Wait until all PIR steps are done (IDONE)
+    // Wait until all PIR steps are done (IDONE), max 100 ms
+    timeout = 100000;
     while ((io_read32(MCTL_PHY_BASE + MCTL_PHY_GENERAL_STATUS0) & 0x1) == 0) {
+        if (timeout == 0) {
+            uart_puts("DRAM init timeout (IDONE)\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
     }
 
     // ZQ calibration error
@@ -597,8 +585,15 @@ static uint32_t mctl_channel_init(uint32_t channel_index, const struct dram_conf
         return 1;
     }
 
-    // Wait until the controller is in normal mode
+    // Wait until the controller is in normal mode, max 100 ms
+    timeout = 100000;
     while ((io_read32(MCTL_PHY_BASE + MCTL_PHY_STATUS) & 0x1) == 0) {
+        if (timeout == 0) {
+            uart_puts("DRAM init timeout (normal mode)\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
     }
 
     // undocumented: refresh pulse, then CCCR bit 31
