@@ -95,7 +95,7 @@ static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
     io_write32((CCU_BASE + CCU_PLL_DDR), val | 0x20000000);
 
     // wait for PLL to lock, max 2 ms (like clock_enable_pll), 0 = failed
-    int timeout = 2000;
+    uint32_t timeout = 2000;
     while ((io_read32((CCU_BASE + CCU_PLL_DDR)) & 0x10000000) == 0) {
         if (timeout == 0)
             return 0;
@@ -344,40 +344,40 @@ static void mctl_phy_addrcomm_remapping(const struct dram_config *cfg) {
 
 static void mctl_set_timing_params(const struct dram_config *cfg) {
     // row timing (open a row = activate, close a row = precharge)
-    uint8_t t_act_window;    // tFAW: max 4 row opens in this time
-    uint8_t t_row2row_delay; // tRRD: open row in bank A -> open row in bank B
-    uint8_t t_ras_cas_delay; // tRCD: open row -> read/write (RAS = row address, CAS = column address)
-    uint8_t t_row_cycle;     // tRC: open row -> open next row in the same bank
-    uint8_t t_row_precharge; // tRP: how long closing a row takes
-    uint8_t t_min_row_open;  // tRAS: min time a row has to stay open
-    uint8_t t_max_row_open;  // tRAS(max): max time a row may stay open, in steps of 1024 cycles
+    uint32_t t_act_window;    // tFAW: max 4 row opens in this time
+    uint32_t t_row2row_delay; // tRRD: open row in bank A -> open row in bank B
+    uint32_t t_ras_cas_delay; // tRCD: open row -> read/write (RAS = row address, CAS = column address)
+    uint32_t t_row_cycle;     // tRC: open row -> open next row in the same bank
+    uint32_t t_row_precharge; // tRP: how long closing a row takes
+    uint32_t t_min_row_open;  // tRAS: min time a row has to stay open
+    uint32_t t_max_row_open;  // tRAS(max): max time a row may stay open, in steps of 1024 cycles
 
     // refresh
-    uint16_t t_refresh_cycle;    // tRFC: how long one refresh takes
-    uint16_t t_refresh_interval; // tREFI: how often a refresh is needed, in steps of 32 cycles
+    uint32_t t_refresh_cycle;    // tRFC: how long one refresh takes
+    uint32_t t_refresh_interval; // tREFI: how often a refresh is needed, in steps of 32 cycles
 
     // read/write delays
-    uint8_t t_write_read_delay;  // tWTR: write -> read
-    uint8_t t_cas_latency;       // tCL: read command -> DRAM sends the data
-    uint8_t t_cas_write_latency; // tCWL: write command -> DRAM wants the data
-    uint8_t write_latency;       // write command -> controller hands the data to the PHY
-    uint8_t t_rdata_en;          // read command -> controller listens to the PHY
-    uint8_t t_col2col_delay;     // tCCD: read -> read or write -> write
-    uint8_t t_read_precharge;    // tRTP: read -> close the row
-    uint8_t t_write_precharge;   // tWTP: write -> close the row
-    uint8_t t_write2read;        // write command -> read command, as the controller counts it
-    uint8_t t_read2write;        // read command -> write command, as the controller counts it
+    uint32_t t_write_read_delay;  // tWTR: write -> read
+    uint32_t t_cas_latency;       // tCL: read command -> DRAM sends the data
+    uint32_t t_cas_write_latency; // tCWL: write command -> DRAM wants the data
+    uint32_t write_latency;       // write command -> controller hands the data to the PHY
+    uint32_t t_rdata_en;          // read command -> controller listens to the PHY
+    uint32_t t_col2col_delay;     // tCCD: read -> read or write -> write
+    uint32_t t_read_precharge;    // tRTP: read -> close the row
+    uint32_t t_write_precharge;   // tWTP: write -> close the row
+    uint32_t t_write2read;        // write command -> read command, as the controller counts it
+    uint32_t t_read2write;        // read command -> write command, as the controller counts it
 
     // power-down and self-refresh (DRAM sleeps, self-refresh = it refreshes itself while sleeping)
-    uint8_t t_powerdown_exit;   // tXP: wake up from power-down -> next command
-    uint8_t t_clk_enable;       // tCKE: min time the CKE pin (clock enable) stays on or off
-    uint8_t t_selfref_exit_clk; // tCKSRX: clock has to run this long before leaving self-refresh
-    uint8_t t_selfref_min;      // tCKESR: min time the DRAM stays in self-refresh
+    uint32_t t_powerdown_exit;   // tXP: wake up from power-down -> next command
+    uint32_t t_clk_enable;       // tCKE: min time the CKE pin (clock enable) stays on or off
+    uint32_t t_selfref_exit_clk; // tCKSRX: clock has to run this long before leaving self-refresh
+    uint32_t t_selfref_min;      // tCKESR: min time the DRAM stays in self-refresh
 
     // mode registers
-    uint8_t t_mode_update;  // tMOD: write a mode register -> next normal command
-    uint8_t t_mode_to_mode; // tMRD: write a mode register -> write the next one
-    uint8_t t_mode_write;   // tMRW: LPDDR only, 0 for DDR3
+    uint32_t t_mode_update;  // tMOD: write a mode register -> next normal command
+    uint32_t t_mode_to_mode; // tMRD: write a mode register -> write the next one
+    uint32_t t_mode_write;   // tMRW: LPDDR only, 0 for DDR3
 
     // wait times at power-on, done by the PHY, in DRAM clock cycles (dram_clk in MHz * us = cycles)
     uint32_t t_init_clk_en_low;  // tDINIT0: 500 us CLK_EN off after power-on
@@ -526,9 +526,9 @@ static void eye_delay_compensation(const struct dram_config *cfg) {
     io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_CONFIG(28)), (cfg->dram_tpr10 & 0xf00) >> 4);
 }
 
-static uint32_t mctl_channel_init(const struct dram_config *cfg) {
+static int mctl_channel_init(const struct dram_config *cfg) {
     uint32_t val;
-    int timeout;
+    uint32_t timeout;
 
     // set DDR-clk to half of CPU-clk
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_TIMER), 0xfff, (cfg->dram_clk / 2) - 1);
@@ -620,7 +620,7 @@ static uint32_t mctl_channel_init(const struct dram_config *cfg) {
     return 0;
 }
 
-static uint32_t mctl_core_init(struct dram_config *cfg) {
+static int mctl_core_init(struct dram_config *cfg) {
     if (dram_clock_init(cfg))
         return 1;
     dram_vref_init(cfg);
@@ -679,7 +679,7 @@ static void dram_finish_init(void) {
     dram_allow_all_master();
 }
 
-static uint32_t dram_simple_wr_test(uint32_t mem_mb, uint32_t len) {
+static int dram_simple_wr_test(uint32_t mem_mb, uint32_t len) {
     uint32_t offset_to_middle = (mem_mb / 2) << 20; // half of the DRAM in bytes (awboot: << 18 = in words)
     uint32_t pattern1 = 0x01234567;                 // pattern2 with every bit flipped (~pattern2)
     uint32_t pattern2 = 0xfedcba98;                 // ~pattern1, so every data line gets tested with a 0 and a 1
@@ -729,7 +729,7 @@ static uint32_t dram_simple_wr_test(uint32_t mem_mb, uint32_t len) {
     return 0;
 }
 
-uint32_t dram_init(void) {
+int dram_init(void) {
     /*
      * Allwinner's parameters for the T113-S3 with its built-in 128 MB DDR3
      * same as awboot (sunxi_dram_init) and U-Boot mangopi_mq_r_defconfig, only para1/para2 are calculated by me

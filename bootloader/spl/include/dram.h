@@ -2,5 +2,4 @@
 
 #include <stdint.h>
 
-
-uint32_t dram_init(void);
+int dram_init(void);

@@ -15,6 +15,11 @@
 
 #define TICKS_PER_US 24u // 24 MHz crystal -> 24 counter ticks per microsecond
 
+/*
+ * reads the current value of the counter = "what time is it", in ticks since power-on
+ * CNTPCT = Counter-timer Physical Count register (ARM's name), the Generic Timer's 64-bit counter, +24 every us
+ * only used by timer_udelay below: read it once at the start, then again until enough ticks passed
+ */
 static uint64_t read_cntpct(void) {
     uint32_t low, high;
     // mrrc --> move to 2 ARM Registers from Coprocessor; CNTPCT is 64 bit, so it comes in 2 halves

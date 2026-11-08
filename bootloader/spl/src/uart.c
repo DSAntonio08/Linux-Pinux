@@ -34,20 +34,19 @@ void uart_init(void) {
     // - FIFO
 
     uintptr_t addr = UART1_BASE;
-    io_write32(addr + 0x04, 0x0);                 // disable Interrupt by writing 0 in 0x02500404; because we send via polling, not Interrupt
-    io_write32(addr + 0x08, 0xf7);                // enable FIFO Puffer for MSGs
-    uint32_t val = io_read32(addr + 0x0c);        // addr + 0x0c means go on 12bytes to another register; 1 << 7 means go 7Bit in 1 Register
-    val |= (1 << 7);                           // DLAB to 1 (DLAB = a Switch, that selects the 'function' of 2 adresses (0x00 & 0x04); depending on state they do something different)
-    io_write32(addr + 0x0c, val);                 // enable 'Baud-Rate division Register' to select Baude Rate later
-    io_write32(addr + 0x00, 0xd & 0xff);          // write first half od 'Baud-Rate divisor'
-    io_write32(addr + 0x04, (0xd >> 8) & 0xff);   // write second half od 'Baud-Rate divisor'
-    val = io_read32(addr + 0x0c);                 // read LCR-state (LCR = Line Control Register; the register where the UART Settings are made)
-    val &= ~(1 << 7);                          // DLAB to 0
-    io_write32(addr + 0x0c, val);                 // update LCR
-    val = io_read32(addr + 0x0c);                 // read new LCR state
-    val &= ~0x1f;                              // 0x1f = 31 = 00011111; we ~ them so just set 5last bits to 0
-    val |= (0x3 << 0) | (0 << 2) | (0x0 << 3); // Set UART frame format to 8 data bits, 1 stop bit, no parity (8N1); I set exactly those bits, bc theyre 'defined' that way in the T113's User Manual
-    io_write32(addr + 0x0c, val);
+    io_write32(addr + 0x04, 0x0);  // disable Interrupt by writing 0 in 0x02500404; because we send via polling, not Interrupt
+    io_write32(addr + 0x08, 0xf7); // enable FIFO Puffer for MSGs
+
+    // LCR (Line Control Register, addr + 0x0c) = the register where the UART settings are made
+    // DLAB = a switch, that selects the 'function' of 2 addresses (0x00 & 0x04); depending on state they do something different
+    io_setbits_le32(addr + 0x0c, 1 << 7);       // DLAB to 1: enable 'Baud-Rate division Register' to select Baud Rate
+    io_write32(addr + 0x00, 0xd & 0xff);        // write first half od 'Baud-Rate divisor'
+    io_write32(addr + 0x04, (0xd >> 8) & 0xff); // write second half od 'Baud-Rate divisor'
+    io_clearbits_le32(addr + 0x0c, 1 << 7);     // DLAB to 0
+
+    // clear the 5 last bits (0x1f = 00011111), then set the UART frame format to 8 data bits, 1 stop bit, no parity (8N1)
+    // I set exactly those bits, bc theyre 'defined' that way in the T113's User Manual
+    io_clearsetbits_le32(addr + 0x0c, 0x1f, (0x3 << 0) | (0 << 2) | (0x0 << 3));
 }
 
 void uart_putc(char c) {
@@ -66,7 +65,7 @@ void uart_puts(const char *s) {
     }
 }
 
-static uint32_t nibble(uint32_t val, int k) { return (val >> (4 * k)) & 0x0F; }
+static uint32_t nibble(uint32_t val, uint32_t k) { return (val >> (4 * k)) & 0x0F; }
 
 void uart_puthex32(uint32_t val) {
     const char *lookup = "0123456789ABCDEF";

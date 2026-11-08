@@ -22,6 +22,6 @@
  *   14  (1110)  external interrupt (PG-EINTx)
  *   15  (1111)  IO disable, the reset default (pin does nothing)
  */
-void gpio_set_func(uint8_t pin, uint32_t function);
-uint8_t gpio_read(uint8_t pin);
-void gpio_write(uint8_t pin, uint32_t val);
+void gpio_set_func(uint32_t pin, uint32_t function);
+uint32_t gpio_read(uint32_t pin);
+void gpio_write(uint32_t pin, uint32_t val);

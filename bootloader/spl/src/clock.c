@@ -14,25 +14,18 @@ void clock_init_uart(void) {
     // Set APB1 (Advanced Peripheral Bus 1) to 24MHz for sure
 
     uintptr_t addr = CCU_BASE + CCU_APB1_CLK;
-    uint32_t val = io_read32(addr);
-    val &= ~((0x3u << 24) | (0x3u << 8) | 0x1fu);
-    io_write32(addr, val);
+    io_clearbits_le32(addr, (0x3u << 24) | (0x3u << 8) | 0x1fu);
 
     // release UART1 reset (first!)
 
     // UART_BGR_REG (CCU + 0x90C), bit 17 = UART1_RST, 1 = de-assert (manual p.119)
     addr = CCU_BASE + CCU_UART_BGR;
-    val = io_read32(addr);
-    val |= 1 << 17;
-    io_write32(addr, val);
+    io_setbits_le32(addr, 1 << 17);
 
     // Open Clock Gate for UART1
 
     // UART_BGR_REG (CCU + 0x90C), bit 1 = UART1_GATING, 1 = pass (manual p.120)
-    addr = CCU_BASE + CCU_UART_BGR;
-    val = io_read32(addr);
-    val |= 1 << 1;
-    io_write32(addr, val);
+    io_setbits_le32(addr, 1 << 1);
 }
 
 /*
@@ -52,16 +45,13 @@ int clock_enable_pll(uint32_t offset) {
         return 0;
 
     // PLL + its power on, output gate closed, so no clock leaves the PLL while it settles
-    val |= PLL_EN | PLL_LDO_EN;
-    val &= ~PLL_OUTPUT_GATE;
-    io_write32(addr, val);
+    io_clearsetbits_le32(addr, PLL_OUTPUT_GATE, PLL_EN | PLL_LDO_EN);
 
     // start lock detection
-    val |= PLL_LOCK_EN;
-    io_write32(addr, val);
+    io_setbits_le32(addr, PLL_LOCK_EN);
 
     // wait for LOCK, max 2 ms (PLL_CPU needs up to 1.5 ms, the others 500 us, p.60)
-    int timeout = 2000;
+    uint32_t timeout = 2000;
     while ((io_read32(addr) & PLL_LOCK) == 0) {
         if (timeout == 0)
             return 1;
@@ -72,8 +62,7 @@ int clock_enable_pll(uint32_t offset) {
     timer_udelay(20); // manual: wait 20 us after LOCK
 
     // open the output gate, now the PLL is usable
-    val |= PLL_OUTPUT_GATE;
-    io_write32(addr, val);
+    io_setbits_le32(addr, PLL_OUTPUT_GATE);
 
     return 0;
 }
