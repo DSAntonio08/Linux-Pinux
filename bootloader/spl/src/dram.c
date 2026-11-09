@@ -1,3 +1,20 @@
+/*
+ * dram.c - brings up the T113-S3's built-in 128 MB DDR3, so later stages can use DRAM at 0x40000000
+ *
+ * Ported from awboot's dram.c, reduced to my case: DDR3, 1 rank, 16 bit, 792 MHz
+ * Most controller/PHY registers are not in the manual, sources are noted in dram_regs.h
+ *
+ * dram_init() does, in this order:
+ *   1. dram_zq_init():   ZQ calibration (driver/termination strength)
+ *   2. mctl_core_init(): DRAM clock (PLL_DDR), Vref, controller setup, address mapping,
+ *                        timing parameters, PHY training (mctl_channel_init)
+ *   3. dram_get_size():  reads the size back from the controller (should be 128 MB)
+ *   4. dram_finish_init(): power saving off, auto ZQ calibration off, all bus masters may use DRAM again
+ *   5. dram_simple_wr_test(): writes a pattern and reads it back
+ *
+ * Returns 0 on success, 1 if a step fails (every wait loop has a timeout), progress is printed over UART
+ */
+
 #include "../include/dram.h"
 #include "../include/dram_regs.h"
 #include "../include/io.h"

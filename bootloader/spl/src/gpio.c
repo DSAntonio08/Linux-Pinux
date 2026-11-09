@@ -1,3 +1,13 @@
+/*
+ * gpio.c - Port G pin driver: select a pin's function, read it, write it
+ *
+ * Only Port G for now (UART1 on PG6/PG7, LED on PG13), addresses in t113_regs.h
+ *
+ * gpio_set_func(): writes the pin's 4-bit function field in PG_CFGx (8 pins per register)
+ * gpio_read():     returns the pin's bit from PG_DAT
+ * gpio_write():    sets/clears only the pin's bit in PG_DAT, the other pins stay as they are
+ */
+
 #include "../include/gpio.h"
 #include "../include/io.h"
 #include "../include/t113_regs.h"

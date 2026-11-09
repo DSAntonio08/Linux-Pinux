@@ -1,16 +1,18 @@
 /*
- * uart.c - first-light test: sends "HELLO WORLD" over UART1 forever
+ * uart.c - UART1 serial output driver, used for all debug messages of the SPL
  *
- * Runs on the board, freestanding (no libc!), started by start.S via main()
+ * Runs on the board, freestanding (no libc!), called from main.c and the other drivers
  *
  * Hardware: UART1 on PG6 (TX) / PG7 (RX), 3.3V levels (VCC-PG = 3V3)
  * Setting:  115200 baud, 8N1, polling (no interrupts)
  *
- * What it does:
+ * uart_init():
  *   1. clocks: clock_init_uart() in clock.c (APB1 -> 24 MHz, UART1 clock gate + reset)
  *   2. PG6/PG7 -> function 2 (UART1)
  *   3. UART setup: interrupts off, FIFO on, divisor 13 (24 MHz / 16 / 13 = 115385 baud, +0.16%), 8N1
- *   4. loop: wait until TX FIFO has space, write the char
+ * uart_putc():     waits until the TX FIFO has space, then writes one char
+ * uart_puts():     sends a string char by char
+ * uart_puthex32(): sends a 32-bit value as 8 hex digits
  *
  * Terminal: screen /dev/tty.usbserial-XXXX 115200
  */

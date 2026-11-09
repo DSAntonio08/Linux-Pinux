@@ -1,3 +1,13 @@
+/*
+ * dram_regs.h - register addresses and bit meanings for the DRAM controller (MCTL_COM + MCTL_PHY)
+ *
+ * Only dram.c needs these, that's why they're not in t113_regs.h
+ * Also has the few non-DRAM registers that the DRAM init touches (SYS_CFG, SID, AON_CPUCFG, AON_PRCM)
+ *
+ * Most of these registers are NOT in the T113-S3 manual: names and meanings come from awboot (reg-dram.h, dram.c)
+ * Every block says where its information comes from
+ */
+
 #pragma once
 
 /* ---- DRAM ---- */

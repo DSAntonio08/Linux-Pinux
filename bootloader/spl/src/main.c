@@ -1,5 +1,5 @@
 /*
- * spl.c - Secondary Program Loader, main() of the SPL (runs in SRAM / Static RAM)
+ * main.c - Secondary Program Loader, main() of the SPL (runs in SRAM / Static RAM)
  *
  * Runs on the board, freestanding (no libc!), started by start.S via main()
  *
@@ -25,11 +25,21 @@
 static void dump_clock_state(void);
 
 int main(void) {
-    dump_clock_state();
     clock_init_uart();
     uart_init();          // everything UART except clock
+    // dump_clock_state();
     gpio_set_func(13, 1); // PG13 -> output
-    dram_init();
+
+    if (dram_init() != 0) {
+        uart_puts("DRAM init failed, stopping\r\n");
+        while (1) {
+            gpio_write(13, 1);
+            timer_udelay(25000);
+            gpio_write(13, 0);
+            timer_udelay(25000);
+        }
+    }
+    uart_puts("DRAM init OK\r\n");
 
     while (1) {
         // uart_puts("Hello World\r\n");
