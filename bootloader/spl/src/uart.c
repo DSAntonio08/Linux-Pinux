@@ -27,8 +27,8 @@ void uart_init(void) {
     // APB1 to 24MHz + UART1 clock gate open + out of reset, all in clock.c
     clock_init_uart();
 
-    gpio_set_func(6, 2); // UART1_TX
-    gpio_set_func(7, 2); // UART1_RX
+    gpio_set_func(PORT_G, 6, 2); // UART1_TX
+    gpio_set_func(PORT_G, 7, 2); // UART1_RX
 
     // Configure:
     // - UART1 Baudrate too 115200
