@@ -16,6 +16,7 @@
  */
 
 #include "../include/dram.h"
+#include "../include/clock.h"
 #include "../include/dram_regs.h"
 #include "../include/io.h"
 #include "../include/t113_regs.h"
@@ -98,54 +99,20 @@ static void dram_deny_all_master(void) {
     timer_udelay(10);
 }
 
-static uint32_t ccu_set_pll_ddr_clk(const struct dram_config *cfg) {
-    uint32_t val, clk, clk_div;
-
-    clk = cfg->dram_clk;
-
-    clk_div = (clk * 2) / 24;
-    val = io_read32(CCU_BASE + CCU_PLL_DDR);
-    val &= 0xfff800fc;         // clear dividers
-    val |= (clk_div - 1) << 8; // Set PLL division
-    val |= 0xc0000000;         // enable PLL and LDO
-    val &= 0xdfffffff;
-    io_write32((CCU_BASE + CCU_PLL_DDR), val | 0x20000000);
-
-    // wait for PLL to lock, max 2 ms (like clock_enable_pll), 0 = failed
-    uint32_t timeout = 2000;
-    while ((io_read32((CCU_BASE + CCU_PLL_DDR)) & 0x10000000) == 0) {
-        if (timeout == 0)
-            return 0;
-        timer_udelay(1);
-        timeout--;
-    }
-    timer_udelay(20);
-
-    io_setbits_le32((CCU_BASE + CCU_PLL_DDR), PLL_OUTPUT_GATE); // open the PLL output gate
-
-    // turn clock gate on
-    val = io_read32((CCU_BASE + CCU_DRAM_CLK));
-    val &= 0xfcfffcfc; // select DDR clk source, n=1, m=1
-    val |= 0x80000000; // turn clock on
-    io_write32((CCU_BASE + CCU_DRAM_CLK), val);
-
-    return clk_div * 24;
-}
-
 static int dram_clock_init(struct dram_config *cfg) {
     uint32_t clk;
 
     // hold MBUS in reset
-    io_clearbits_le32((CCU_BASE + CCU_MBUS_CLK), (1 << 30));
+    io_clearbits_le32((CCU_BASE + CCU_MBUS_CLK), (1u << 30));
 
     io_clearbits_le32((CCU_BASE + CCU_DRAM_BGR), 0x10001);
     // DRAM_CLK_REG: bit 31 = clock gate off, bit 30 = module reset asserted (0 = held in reset), bit 27 = update (apply the change)
     // bit 30 may be "reserved" in the T113 manual, name from U-Boot's H6 CCU (DRAM_MOD_RESET), Allwinner's DRAM code uses it on the T113 too
-    io_clearsetbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1 << 30), (1 << 27));
+    io_clearsetbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1u << 30), (1u << 27));
     timer_udelay(10);
 
     // Set ddr pll clock
-    clk = ccu_set_pll_ddr_clk(cfg);
+    clk = clock_set_pll_ddr(cfg->dram_clk);
     if (clk == 0) {
         uart_puts("PLL_DDR lock timeout\r\n");
         return 1;
@@ -155,11 +122,11 @@ static int dram_clock_init(struct dram_config *cfg) {
     dram_deny_all_master();
 
     // release sdram reset
-    io_setbits_le32((CCU_BASE + CCU_DRAM_BGR), 1 << 16);
+    io_setbits_le32((CCU_BASE + CCU_DRAM_BGR), 1u << 16);
 
     // release MBUS reset
-    io_setbits_le32((CCU_BASE + CCU_MBUS_CLK), 1 << 30);
-    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), 1 << 30);
+    io_setbits_le32((CCU_BASE + CCU_MBUS_CLK), 1u << 30);
+    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), 1u << 30);
 
     timer_udelay(5);
 
@@ -167,7 +134,7 @@ static int dram_clock_init(struct dram_config *cfg) {
     io_setbits_le32((CCU_BASE + CCU_DRAM_BGR), 1);
 
     // turn dram clock gate on, trigger sdram clock gate update
-    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1 << 27));
+    io_setbits_le32((CCU_BASE + CCU_DRAM_CLK), (1u << 31) | (1u << 27));
     timer_udelay(5);
 
     // memory Controller clock enable
@@ -185,14 +152,14 @@ static int dram_clock_init(struct dram_config *cfg) {
  */
 static void dram_zq_init(const struct dram_config *cfg) {
     // Test ZQ Status
-    if (cfg->dram_tpr13 & (1 << 16)) {
+    if (cfg->dram_tpr13 & (1u << 16)) {
         uart_puts("DRAM only has internal ZQ\r\n");
-        io_setbits_le32((SYS_CFG_BASE + ZQ_CAL_CTRL), 1 << 8);
+        io_setbits_le32((SYS_CFG_BASE + ZQ_CAL_CTRL), 1u << 8);
         io_write32((SYS_CFG_BASE + ZQ_RES_CTRL), 0);
         timer_udelay(10);
     } else {
         io_clearbits_le32((SYS_CFG_BASE + ZQ_CAL_CTRL), 0x3);
-        io_write32((AON_PRCM_BASE + ANALOG_PWROFF_GATING), cfg->dram_tpr13 & (1 << 16));
+        io_write32((AON_PRCM_BASE + ANALOG_PWROFF_GATING), cfg->dram_tpr13 & (1u << 16));
         timer_udelay(10);
         io_clearsetbits_le32((SYS_CFG_BASE + ZQ_CAL_CTRL), 0x108, 2);
         timer_udelay(10);
@@ -209,12 +176,12 @@ static void dram_zq_init(const struct dram_config *cfg) {
  * should sit in the middle of the signal swing (~VCC-DRAM / 2), values from tpr5 (data lines) and tpr6 (address/command)
  */
 static void dram_vref_init(const struct dram_config *cfg) {
-    if (cfg->dram_tpr13 & (1 << 17))
+    if (cfg->dram_tpr13 & (1u << 17))
         return;
 
     io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_IOVREF_CR0), 0x7f7f7f7f, cfg->dram_tpr5);
 
-    if (!(cfg->dram_tpr13 & (1 << 16)))
+    if (!(cfg->dram_tpr13 & (1u << 16)))
         io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_IOVREF_CR1), 0x7f, cfg->dram_tpr6 & 0x7f);
 }
 
@@ -231,10 +198,10 @@ static void mctl_com_init(const struct dram_config *cfg) {
     // Set SDRAM type and data-bus width
     val = ((cfg->dram_type & 0x7) << 16) |        // DRAM type
           ((~cfg->dram_rank_width & 0x1) << 12) | // DQ width
-          (1 << 22);                              // burst length 8 (DDR3 always uses BL8)
+          (1u << 22);                             // burst length 8 (DDR3 always uses BL8)
 
-    if (cfg->dram_tpr13 & (1 << 5))
-        val |= (1 << 19); // 1T instead of 2T
+    if (cfg->dram_tpr13 & (1u << 5))
+        val |= (1u << 19); // 1T instead of 2T
 
     io_clearsetbits_le32((MCTL_COM_BASE + MCTL_COM_WORK_MODE0), 0x00fff000, val);
 
@@ -462,7 +429,7 @@ static void mctl_set_timing_params(const struct dram_config *cfg) {
 
     /* PI_TIMING0: timing between controller and PHY
    PTR3, PTR4: wait times at power-on (DRAM init) */
-    io_write32((MCTL_PHY_BASE + MCTL_PHY_PI_TIMING0), (0x2 << 24) | (t_rdata_en << 16) | (1 << 8) | (write_latency << 0));
+    io_write32((MCTL_PHY_BASE + MCTL_PHY_PI_TIMING0), (0x2u << 24) | (t_rdata_en << 16) | (1u << 8) | (write_latency << 0));
     io_write32((MCTL_PHY_BASE + MCTL_PHY_PTR3), (t_init_clk_en_low << 0) | (t_init_clk_en_high << 20));
     io_write32((MCTL_PHY_BASE + MCTL_PHY_PTR4), (t_init_reset << 0) | (t_init_zq << 20));
 
@@ -506,7 +473,7 @@ static void eye_delay_compensation(const struct dram_config *cfg) {
         io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_IO_CONFIG(1, i)), delay);
 
     // General Config 0: assert AC (address/command) loopback FIFO reset
-    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1 << 26);
+    io_clearbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1u << 26);
 
     // DQS0 read and write delay
     delay = (cfg->dram_tpr11 & 0xf0000) >> 7;
@@ -527,7 +494,7 @@ static void eye_delay_compensation(const struct dram_config *cfg) {
     io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_DELAY_LINE6(1)), (cfg->dram_tpr11 & 0xf00000) << 5);
 
     // General Config 0: release FIFO reset
-    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1 << 26);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG0), 1u << 26);
 
     timer_udelay(1);
 
@@ -556,7 +523,7 @@ static int mctl_channel_init(const struct dram_config *cfg) {
     if (cfg->dram_odt_en)
         val = 0;
     else
-        val = (1 << 5);
+        val = (1u << 5);
 
     // Data lane 0 + 1 Config Register 0
     if (cfg->dram_clk > 672) {
@@ -569,7 +536,7 @@ static int mctl_channel_init(const struct dram_config *cfg) {
     }
 
     // MCTL_PHY_BASE + MCTL_PHY_AC_IO_GENERAL_CONFIG undocumented: couldn't tell you either.
-    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_GENERAL_CONFIG), 1 << 1);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_AC_IO_GENERAL_CONFIG), 1u << 1);
 
     /*
      * Fixed delays from the board maker, must be set BEFORE PIR,
@@ -587,8 +554,8 @@ static int mctl_channel_init(const struct dram_config *cfg) {
     timer_udelay(10);
     io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 0xc0);
 
-    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_TRAINING_CONFIG), 0x0fffffff, (cfg->dram_rank_width & (1 << 12) ? 0x03000001 : 0x01000007));
-    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_ZQ_CONFIG), 0x3ffffff, (cfg->dram_zq & 0x00ffffff) | (1 << 25));
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_DATA_TRAINING_CONFIG), 0x0fffffff, (cfg->dram_rank_width & (1u << 12) ? 0x03000001 : 0x01000007));
+    io_clearsetbits_le32((MCTL_PHY_BASE + MCTL_PHY_ZQ_CONFIG), 0x3ffffff, (cfg->dram_zq & 0x00ffffff) | (1u << 25));
 
     io_write32((MCTL_PHY_BASE + MCTL_PHY_INIT), 0x1f2);    // select the steps
     io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_INIT), 0x1); // GO
@@ -607,7 +574,7 @@ static int mctl_channel_init(const struct dram_config *cfg) {
     }
 
     // ZQ calibration error
-    if (io_read32(MCTL_PHY_BASE + MCTL_PHY_GENERAL_STATUS0) & (1 << 20)) {
+    if (io_read32(MCTL_PHY_BASE + MCTL_PHY_GENERAL_STATUS0) & (1u << 20)) {
         uart_puts("ZQ calibration error, check external 240 ohm resistor\r\n");
         return 1;
     }
@@ -691,7 +658,7 @@ static void dram_finish_init(void) {
      * pad = the chip's metal contact behind a pin, "hold" = freeze the pin levels (for deep sleep)
      * what bit 13 = 1 exactly means is unknown, done like awboot
      */
-    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 1 << 13);
+    io_setbits_le32((MCTL_PHY_BASE + MCTL_PHY_GENERAL_CONFIG2), 1u << 13);
 
     dram_allow_all_master();
 }

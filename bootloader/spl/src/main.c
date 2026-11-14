@@ -33,9 +33,9 @@ int main(void) {
     if (dram_init() != 0) {
         uart_puts("DRAM init failed, stopping\r\n");
         while (1) {
-            gpio_write(13, 1);
+            gpio_write(PORT_G, 13, 1);
             timer_udelay(25000);
-            gpio_write(13, 0);
+            gpio_write(PORT_G, 13, 0);
             timer_udelay(25000);
         }
     }
@@ -43,9 +43,9 @@ int main(void) {
 
     while (1) {
         // uart_puts("Hello World\r\n");
-        gpio_write(13, 1); // PG13 high (3V3), LED on
+        gpio_write(PORT_G, 13, 1); // PG13 high (3V3), LED on
         timer_udelay(100000);
-        gpio_write(13, 0); // PG13 low (0V), LED off
+        gpio_write(PORT_G, 13, 0); // PG13 low (0V), LED off
         timer_udelay(100000);
     }
 }

@@ -41,21 +41,21 @@ void uart_init(void) {
 
     // LCR (Line Control Register, addr + 0x0c) = the register where the UART settings are made
     // DLAB = a switch, that selects the 'function' of 2 addresses (0x00 & 0x04); depending on state they do something different
-    io_setbits_le32(addr + 0x0c, 1 << 7);       // DLAB to 1: enable 'Baud-Rate division Register' to select Baud Rate
+    io_setbits_le32(addr + 0x0c, 1u << 7);       // DLAB to 1: enable 'Baud-Rate division Register' to select Baud Rate
     io_write32(addr + 0x00, 0xd & 0xff);        // write first half od 'Baud-Rate divisor'
     io_write32(addr + 0x04, (0xd >> 8) & 0xff); // write second half od 'Baud-Rate divisor'
-    io_clearbits_le32(addr + 0x0c, 1 << 7);     // DLAB to 0
+    io_clearbits_le32(addr + 0x0c, 1u << 7);     // DLAB to 0
 
     // clear the 5 last bits (0x1f = 00011111), then set the UART frame format to 8 data bits, 1 stop bit, no parity (8N1)
     // I set exactly those bits, bc theyre 'defined' that way in the T113's User Manual
-    io_clearsetbits_le32(addr + 0x0c, 0x1f, (0x3 << 0) | (0 << 2) | (0x0 << 3));
+    io_clearsetbits_le32(addr + 0x0c, 0x1f, (0x3u << 0) | (0u << 2) | (0x0u << 3));
 }
 
 void uart_putc(char c) {
     // Put whatever you wanna send into the Send-Register if it's not occupied already
 
     uintptr_t addr = UART1_BASE;
-    while ((io_read32(addr + 0x7c) & (0x1 << 1)) == 0)
+    while ((io_read32(addr + 0x7c) & (0x1u << 1)) == 0)
         ;
     io_write32(addr + 0x00, c);
 }

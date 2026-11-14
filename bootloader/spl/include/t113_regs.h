@@ -25,6 +25,9 @@
 #define CCU_DRAM_BGR 0x80Cu  /* DRAM bus gate + reset */
 #define CCU_MBUS_CLK 0x540u  /* MBUS clock + reset */
 
+#define CCU_SMHC0_CLK 0x830u /* SMHC0 clock: gate (bit 31), source (bits 26:24), N (bits 9:8), M (bits 3:0), around p.114 */
+#define CCU_SMHC_BGR 0x84Cu  /* SMHC0-2 bus gate (bits 0-2) + reset (bits 16-18), around p.117 */
+
 /* bits that are the same in every PLL_*_CTRL_REG, p.70 */
 #define PLL_EN (1u << 31)          /* main switch */
 #define PLL_LDO_EN (1u << 30)      /* PLL power supply, default 1 */
@@ -40,3 +43,6 @@
 
 /* ---- UART ---- */
 #define UART1_BASE 0x02500400u
+
+/* ---- SMHC (SD/MMC Host Controller) ---- */
+#define SMHC0_BASE 0x04020000u /* SMHC0 = microSD card slot, manual 7.2 */
