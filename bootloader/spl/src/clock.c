@@ -14,6 +14,10 @@
  * NOT here: dram_clock_init() in dram.c also touches the CCU (MBUS, DRAM_BGR, DRAM_CLK)
  *   its CCU steps are interlinked with DRAM controller steps (block bus masters, then resets, then gates),
  *   so it stays in dram.c for now. Maybe moved here later, not decided yet
+ *
+ * NOT here: smhc_set_clock() in smhc.c also touches the CCU (SMHC0_CLK_REG), to switch the card clock to 25 MHz
+ *   same reason: its CCU step sits between two SMHC controller steps (card clock off, change divider, card clock on),
+ *   so it stays in smhc.c. Not written yet
  */
 
 #include "../include/clock.h"

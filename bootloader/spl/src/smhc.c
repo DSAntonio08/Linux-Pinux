@@ -1,15 +1,35 @@
 /*
  * smhc.c - SMHC0 driver for the microSD card (read only, polling, no DMA)
  *
+ * This is the controller layer: it knows the T113 registers, but not what the commands mean
+ * The card layer (which commands, in which order) is sd.c, it calls the functions here
+ *
  * smhc_init():
  *   1. pins PF0-PF5 -> function 2 (SMHC0), pull-ups on (CLK, CMD, D0-D3)
  *   2. clock_init_smhc(): reset/gate + 400 kHz card clock (in clock.c)
  *   3. version register != 0 -> controller answers
- *   4. controller reset (global_ctrl), wait until done, clear old status flags
- *   5. card clock on + "update clock" command, wait until the controller took it
+ *   4. controller reset (global_ctrl), wait until done
+ *   5. 1-bit bus, interrupts off, FIFO readable by my code (not the DMA), clear old status flags
+ *   6. card clock on + "update clock" command, wait until the controller took it
+ *   7. wait 1 ms, the card needs 74 clock ticks before the first command
  *
- * Returns 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
- * Not called from main yet, not tested on hardware
+ * smhc_send_cmd(): sends one command to the card and gets the answer
+ *   1. wait until the last command is finished
+ *   2. clear old status flags
+ *   3. write the argument, then the command number + flags + start bit
+ *   4. wait for "command done" or an error flag
+ *   5. copy the answer (response0..3) to the caller
+ *   6. only CMD7: wait until the card is not busy any more
+ *
+ * smhc_read_block(): reads one 512-byte block into a buffer of 128 words
+ *   1. block size + byte count = 512
+ *   2. send CMD17 (read single block) with smhc_send_cmd()
+ *   3. take the 128 words out of the FIFO one by one, watch the error flags
+ *   4. wait for "data done", check the error flags once more
+ *
+ * All three return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
+ * Still missing: smhc_set_clock() to switch from 400 kHz to 25 MHz
+ * Not called from sd.c yet, not tested on hardware
  */
 
 #include "../include/smhc.h"
@@ -83,26 +103,9 @@ struct smhc_reg {
     volatile uint32_t version;               /* (0x300) SMHC_VERS: fixed value, != 0 if the block answers */
 };
 
-// I need to go over the struct again and get everything in detail
-struct smhc {
-    char *name;           // idk name for what
-    struct smhc_reg *reg; // use the register struct inside this "main" struct
-    uint8_t id;
-    uint32_t reset;
+static struct smhc_reg *const reg = (struct smhc_reg *)SMHC0_BASE;
 
-    uint32_t voltage;
-    uint32_t width;
-
-    uint32_t pclk;
-    uint32_t dma_trglvl;
-
-    bool removable;
-    bool isspi;
-};
-
-int smhc_init(struct smhc *smhc) {
-    smhc->reg = (struct smhc_reg *)SMHC0_BASE;
-
+int smhc_init(void) {
     // D1
     gpio_set_func(PORT_F, 0, 2);
     gpio_set_pull(PORT_F, 0, INTERNAL_PULL_UP);
@@ -126,16 +129,17 @@ int smhc_init(struct smhc *smhc) {
 
     clock_init_smhc();
 
-    if (smhc->reg->version == 0) {
+    if (reg->version == 0) {
         uart_puts("SMHC0 does not answer (version register = 0), check reset/gate in clock_init_smhc\r\n");
         return 1;
     }
 
     /* Reset Controller, FIFO and DMA - clears whtv state the BOOT ROM left */
-    smhc->reg->global_ctrl = SMHC_GCTRL_HARDWARE_RESET;
+    reg->global_ctrl = SMHC_GCTRL_HARDWARE_RESET;
+
     // wait for reset-Bits to clear, max 2 ms
     uint32_t timeout = 2000;
-    while (smhc->reg->global_ctrl & SMHC_GCTRL_HARDWARE_RESET) {
+    while (reg->global_ctrl & SMHC_GCTRL_HARDWARE_RESET) {
         if (timeout == 0) {
             uart_puts("SMHC0 reset timeout (global_ctrl reset bits did not clear)\r\n");
             return 1;
@@ -143,24 +147,181 @@ int smhc_init(struct smhc *smhc) {
         timer_udelay(1);
         timeout--;
     }
+
+    /*
+     * Basic setup:
+     * set bus-width; interrupts off
+     */
+    reg->bus_width = 0; // 1bit-mode (D0 only)
+    reg->int_mask = 0;
+
+    // Enable FIFO access - otherwise only DMA allowed
+    io_setbits_le32((uintptr_t)&reg->global_ctrl, SMHC_GCTRL_FIFO_AHB);
+
     /* Clears all old Status-flags*/
-    smhc->reg->raw_int_status = 0xffffffffu;
+    reg->raw_int_status = 0xffffffffu;
 
-    // get the clock from controller to pin (last step)
-    io_setbits_le32((uintptr_t)&smhc->reg->clock_ctrl, 1u << 16);
+    // card clock on, the clock now reaches the CLK pin
+    // "=" writes the whole register, so the extra divider (bits 7:0) is 0 = no extra dividing
+    reg->clock_ctrl = SMHC_CLOCK_CARD_ON;
+
     // tell the controller to switch - otherwise ignored
-    smhc->reg->command = (1u << 31) | (1u << 21) | (1u << 13);
-    //               "do it now"   "only clock"  "wait if busy"
+    reg->command = SMHC_CMD_START | SMHC_CMD_UPDATE_CLOCK | SMHC_CMD_WAIT_DATA_DONE;
+    //             "do it now"      "only clock"            "wait if busy"
 
-    // wait until does
+    // wait for controller-switch, max 2ms
     timeout = 2000;
-    while ((smhc->reg->command & (1u << 31)) != 0) {
+    while ((reg->command & SMHC_CMD_START) != 0) {
         if (timeout == 0) {
             uart_puts("SMHC0 clock update timeout (command start bit did not clear)\r\n");
             return 1;
         }
         timer_udelay(1);
         timeout--;
+    }
+
+    // card needs 74 clock ticks (~185 us at 400 kHz) before the first command
+    timer_udelay(1000);
+
+    return 0;
+}
+
+int smhc_send_cmd(uint32_t index, uint32_t arg, uint32_t flags, uint32_t *response) {
+    /*
+     * Steps:
+     * 1. Wait until command bit 31 is 0 (the last command is finished), with a timeout. -- done
+     * 2. Clear the status flags: raw_int_status = 0xffffffff. -- done
+     * 3. Write command_arg, then write command = index + flags + bit 31 (start). -- done
+     * 4. Poll raw_int_status until CC (bit 2, command complete) or an error bit is set, with a timeout. -- done
+     * 5. Read response0..3. -- done
+     * 6. For R1b responses only (CMD7): wait until status bit 9 (CARD_BUSY) is 0.
+     */
+
+    uint32_t timeout = 2000;
+    while ((reg->command & SMHC_CMD_START) != 0) {
+        if (timeout == 0) {
+            uart_puts("SMHC0 busy: last command never finished (start bit still 1)\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
+    }
+
+    // clear the status-flag
+    reg->raw_int_status = 0xffffffff;
+
+    // argument first: writing command with the start bit sends the message right away
+    reg->command_arg = arg;
+    // command number sits in bits 5:0, the flags and the start bit in the bits above
+    reg->command = index | flags | SMHC_CMD_START;
+
+    timeout = 2000;
+    while ((reg->raw_int_status & (SMHC_INT_CMD_DONE | SMHC_INT_ERRORS)) == 0) {
+        if (timeout == 0) {
+            uart_puts("SMHC0 command timeout (no done and no error flag), CMD 0x");
+            uart_puthex32(index);
+            uart_puts("\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
+    }
+
+    // the loop ends on "done" AND on errors, so check which one it was
+    if (reg->raw_int_status & SMHC_INT_ERRORS) {
+        uart_puts("SMHC0 command failed, CMD 0x");
+        uart_puthex32(index);
+        uart_puts(", raw_int_status 0x");
+        uart_puthex32(reg->raw_int_status);
+        uart_puts("\r\n");
+        return 1;
+    }
+
+    response[0] = reg->response0;
+    response[1] = reg->response1;
+    response[2] = reg->response2;
+    response[3] = reg->response3;
+
+    /*
+     * in the caller (sd.c later)
+     * uint32_t response[4];
+     * smhc_send_cmd(8, 0x1AA, SMHC_CMD_RESPONSE | SMHC_CMD_CHECK_CRC, response);
+     * now response[0] holds the card's answer
+     */
+
+    // wait if CMD7 is busy
+    if (index == 7) {
+        timeout = 100000; // 100ms - card is much slower then controller
+        while ((reg->status & SMHC_STATUS_CARD_BUSY) != 0) {
+            if (timeout == 0) {
+                uart_puts("SMHC0 card busy timeout after CMD7 (card still holds D0 low)\r\n");
+                return 1;
+            }
+            timer_udelay(1);
+            timeout--;
+        }
+    }
+
+    return 0;
+}
+
+// reads one 512-byte block into buf (128 words)
+int smhc_read_block(uint32_t sector, uint32_t *buf) {
+    uint32_t flags = SMHC_CMD_RESPONSE | SMHC_CMD_CHECK_CRC | SMHC_CMD_DATA | SMHC_CMD_WAIT_DATA_DONE;
+    uint32_t response[4];
+
+    reg->block_size = 512;
+    reg->byte_count = 512;
+
+    if (smhc_send_cmd(17, sector, flags, response) != 0) {
+        return 1;
+    }
+
+    // collect the 128 words: the card fills the FIFO, I take the words out one by one
+    uint32_t count = 0;
+    uint32_t timeout = 1000000; // 1 s, the card may need a while before the first data comes
+    while (count < 128) {
+        if (reg->raw_int_status & SMHC_INT_ERRORS) {
+            uart_puts("SMHC0 read failed, raw_int_status 0x");
+            uart_puthex32(reg->raw_int_status);
+            uart_puts("\r\n");
+            return 1;
+        }
+
+        if ((reg->status & SMHC_STATUS_FIFO_EMPTY) == 0) {
+            // a word is waiting: take it, no delay so reading stays fast
+            buf[count] = reg->fifo;
+            count++;
+        } else {
+            // nothing there yet: wait a bit, give up after the timeout
+            if (timeout == 0) {
+                uart_puts("SMHC0 read timeout (FIFO stays empty), words read 0x");
+                uart_puthex32(count);
+                uart_puts("\r\n");
+                return 1;
+            }
+            timer_udelay(1);
+            timeout--;
+        }
+    }
+
+    // all words are here, now wait until the controller says the transfer is finished, max 100 ms
+    timeout = 100000;
+    while ((reg->raw_int_status & (SMHC_INT_DATA_DONE | SMHC_INT_ERRORS)) == 0) {
+        if (timeout == 0) {
+            uart_puts("SMHC0 read timeout (no data done flag)\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
+    }
+
+    // the loop ends on "done" AND on errors (e.g. wrong data checksum), so check which one it was
+    if (reg->raw_int_status & SMHC_INT_ERRORS) {
+        uart_puts("SMHC0 read failed at the end, raw_int_status 0x");
+        uart_puthex32(reg->raw_int_status);
+        uart_puts("\r\n");
+        return 1;
     }
 
     return 0;

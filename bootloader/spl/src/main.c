@@ -21,6 +21,7 @@
 #include "../include/t113_regs.h"
 #include "../include/timer.h"
 #include "../include/uart.h"
+#include "../include/smhc.h"
 
 static void dump_clock_state(void);
 
@@ -28,6 +29,7 @@ int main(void) {
     clock_init_uart();
     uart_init(); // everything UART except clock
     // dump_clock_state();
+
     gpio_set_func(PORT_G, 13, 1); // PG13 -> output
 
     if (dram_init() != 0) {
@@ -41,6 +43,7 @@ int main(void) {
     }
     uart_puts("DRAM init OK\r\n");
 
+    // Delete later
     while (1) {
         // uart_puts("Hello World\r\n");
         gpio_write(PORT_G, 13, 1); // PG13 high (3V3), LED on
@@ -50,10 +53,10 @@ int main(void) {
     }
 }
 
+/*
+read each clock register at startup and print it next to its manual reset value, so you can see what the BROM changed.
+*/
 static void dump_clock_state(void) {
-    /*
-    read each clock register at startup and print it next to its manual reset value, so you can see what the BROM changed.
-    */
 
     struct clock_reg {
         const char *name;
