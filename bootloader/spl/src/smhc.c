@@ -242,13 +242,6 @@ int smhc_send_cmd(uint32_t index, uint32_t arg, uint32_t flags, uint32_t *respon
     response[2] = reg->response2;
     response[3] = reg->response3;
 
-    /*
-     * in the caller (sd.c later)
-     * uint32_t response[4];
-     * smhc_send_cmd(8, 0x1AA, SMHC_CMD_RESPONSE | SMHC_CMD_CHECK_CRC, response);
-     * now response[0] holds the card's answer
-     */
-
     // wait if CMD7 is busy
     if (index == 7) {
         timeout = 100000; // 100ms - card is much slower then controller
