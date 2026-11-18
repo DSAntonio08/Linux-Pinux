@@ -18,30 +18,58 @@
 #include "../include/dram.h"
 #include "../include/gpio.h"
 #include "../include/io.h"
+#include "../include/sd.h"
 #include "../include/t113_regs.h"
 #include "../include/timer.h"
 #include "../include/uart.h"
-#include "../include/smhc.h"
 
 static void dump_clock_state(void);
 
 int main(void) {
+    uint32_t buf[128]; // exactly one sector
+
     clock_init_uart();
     uart_init(); // everything UART except clock
     // dump_clock_state();
 
     gpio_set_func(PORT_G, 13, 1); // PG13 -> output
-
+                                  //
     if (dram_init() != 0) {
-        uart_puts("DRAM init failed, stopping\r\n");
-        while (1) {
-            gpio_write(PORT_G, 13, 1);
-            timer_udelay(25000);
-            gpio_write(PORT_G, 13, 0);
-            timer_udelay(25000);
-        }
+        uart_puts("DRAM init failed: stopping\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
     }
     uart_puts("DRAM init OK\r\n");
+
+    sd_init();
+
+    /*
+     * SD test: sector 16 * 512 bytes = 8192 = 8 KiB, exactly where the SPL (this program) starts on the card
+     * bytes 4-11 of its eGON header must be the magic "eGON.BT0" (see start.S)
+     *
+     *   byte          4      5      6      7      8      9      10     11
+     *   character     e      G      O      N      .      B      T      0
+     *   ASCII (hex)   0x65   0x47   0x4F   0x4E   0x2E   0x42   0x54   0x30
+     *                 '------- buf[1] --------'   '------- buf[2] --------'
+     *
+     * little endian: the first byte sits in the lowest bits of the word, so read each group backwards:
+     *   buf[1] = 0x4E4F4765 ("NOGe"), buf[2] = 0x3054422E ("0TB.")
+     */
+    sd_read_block(16, buf);
+
+    if (buf[1] != 0x4E4F4765) {
+        uart_puts("SD test failed: sector 16, bytes 4-7 are not \"eGON\"\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
+    }
+    uart_puts("SD test: \"eGON\" found\r\n");
+
+    if (buf[2] != 0x3054422E) {
+        uart_puts("SD test failed: sector 16, bytes 8-11 are not \".BT0\"\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
+    }
+    uart_puts("SD test OK: sector 16 holds the SPL header \"eGON.BT0\"\r\n");
 
     // Delete later
     while (1) {

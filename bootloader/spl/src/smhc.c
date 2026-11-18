@@ -29,7 +29,7 @@
  *
  * All three return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
  * Still missing: smhc_set_clock() to switch from 400 kHz to 25 MHz
- * Not called from sd.c yet, not tested on hardware
+ * Not tested on hardware
  */
 
 #include "../include/smhc.h"
@@ -258,7 +258,7 @@ int smhc_send_cmd(uint32_t index, uint32_t arg, uint32_t flags, uint32_t *respon
     return 0;
 }
 
-// reads one 512-byte block into buf (128 words)
+// reads one 512-byte block (sector) into buf (128 ARM-words)
 int smhc_read_block(uint32_t sector, uint32_t *buf) {
     uint32_t flags = SMHC_CMD_RESPONSE | SMHC_CMD_CHECK_CRC | SMHC_CMD_DATA | SMHC_CMD_WAIT_DATA_DONE;
     uint32_t response[4];
@@ -319,3 +319,6 @@ int smhc_read_block(uint32_t sector, uint32_t *buf) {
 
     return 0;
 }
+
+// TODO: switch card clock 400 kHz -> 25 MHz, call at the end of sd_init (steps: docs/bootloader_plan.md "watch out")
+// int smhc_set_clock(uint32_t hz) {}

@@ -30,8 +30,10 @@ The OlivePi PCB has arrived and is assembled. I measured every supply voltage an
 My own SPL (Secondary Program Loader, the first code that runs after the chip's Boot ROM) now runs on the board:
 
 - The Boot ROM loads my image from microSD (eGON.BT0 header from `start.S`, checksum and padding from `tools/mkboot0`).
-- UART1 (PG6/PG7, 115200 8N1) prints text to a serial terminal.
-- A small GPIO driver for Port G (`gpio_set_func`, `gpio_read`, `gpio_write`) blinks an LED on PG13.
+- A UART1 driver (PG6/PG7, 115200 8N1) is written, but not tested on the board yet: the connector for the serial adapter is still on its way.
+- A small GPIO driver for ports B–G (`gpio_set_func`, `gpio_read`, `gpio_write`, pull-ups/downs) blinks an LED on PG13.
+- The DRAM init (ported from awboot) finishes without errors.
+- My own microSD driver (`smhc.c` for the controller, `sd.c` for the card) reads sectors from the card. Tested by reading back the SPL's own `eGON.BT0` header from sector 16. It still runs at 400 kHz; 25 MHz is next.
 
 The first milestone, running my own code from microSD and getting a recognizable message over UART, is reached.
 
