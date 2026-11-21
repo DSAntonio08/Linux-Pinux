@@ -27,9 +27,18 @@
  *   3. take the 128 words out of the FIFO one by one, watch the error flags
  *   4. wait for "data done", check the error flags once more
  *
- * All three return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
- * Still missing: smhc_set_clock() to switch from 400 kHz to 25 MHz
- * Not tested on hardware
+ * smhc_set_clock(): switches the card clock 400 kHz -> 25 MHz, called by sd_init after the card is selected
+ *   1. clock_enable_pll(): make sure PLL_PERI runs (returns at once if the Boot ROM already turned it on)
+ *   2. card clock off + "update clock" command
+ *   3. CCU gate off, SMHC0 clock = PLL_PERI(1X) 600 MHz / 1 / 12 = 50 MHz, CCU gate on (the controller halves it -> 25 MHz)
+ *   4. card clock on + "update clock" command
+ *
+ * update_clock() (static): sends the "update clock" command and waits until the controller took it,
+ *   used by smhc_init and twice by smhc_set_clock
+ *
+ * All four return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
+ * Works on the board at 400 kHz (2026-11-18): init, send_cmd and read_block ran in the sector 16 test (see sd.c), UART messages not seen yet
+ * smhc_set_clock (25 MHz) NOT TESTED ON THE BOARD YET
  */
 
 #include "../include/smhc.h"
@@ -105,6 +114,23 @@ struct smhc_reg {
 
 static struct smhc_reg *const reg = (struct smhc_reg *)SMHC0_BASE;
 
+static int update_clock(void) {
+
+    // go update command - not done automatically
+    reg->command = SMHC_CMD_START | SMHC_CMD_UPDATE_CLOCK | SMHC_CMD_WAIT_DATA_DONE;
+
+    uint32_t timeout = 2000;
+    while ((reg->command & SMHC_CMD_START) != 0) {
+        if (timeout == 0) {
+            uart_puts("SMHC0 clock update timeout (command start bit did not clear)\r\n");
+            return 1;
+        }
+        timer_udelay(1);
+        timeout--;
+    }
+    return 0;
+}
+
 int smhc_init(void) {
     // D1
     gpio_set_func(PORT_F, 0, 2);
@@ -165,19 +191,8 @@ int smhc_init(void) {
     // "=" writes the whole register, so the extra divider (bits 7:0) is 0 = no extra dividing
     reg->clock_ctrl = SMHC_CLOCK_CARD_ON;
 
-    // tell the controller to switch - otherwise ignored
-    reg->command = SMHC_CMD_START | SMHC_CMD_UPDATE_CLOCK | SMHC_CMD_WAIT_DATA_DONE;
-    //             "do it now"      "only clock"            "wait if busy"
-
-    // wait for controller-switch, max 2ms
-    timeout = 2000;
-    while ((reg->command & SMHC_CMD_START) != 0) {
-        if (timeout == 0) {
-            uart_puts("SMHC0 clock update timeout (command start bit did not clear)\r\n");
-            return 1;
-        }
-        timer_udelay(1);
-        timeout--;
+    if (update_clock() != 0) {
+        return 1;
     }
 
     // card needs 74 clock ticks (~185 us at 400 kHz) before the first command
@@ -320,5 +335,34 @@ int smhc_read_block(uint32_t sector, uint32_t *buf) {
     return 0;
 }
 
-// TODO: switch card clock 400 kHz -> 25 MHz, call at the end of sd_init (steps: docs/bootloader_plan.md "watch out")
-// int smhc_set_clock(uint32_t hz) {}
+int smhc_set_clock(void) {
+    if (clock_enable_pll(CCU_PLL_PERI) != 0)
+        return 1;
+
+    io_clearbits_le32((uintptr_t)&reg->clock_ctrl, SMHC_CLOCK_CARD_ON);
+    if (update_clock() != 0) {
+        return 1;
+    }
+    uintptr_t addr = CCU_BASE + CCU_SMHC0_CLK;
+
+    // close clock gate for the following clk-step-up
+    io_clearbits_le32(addr, 1u << 31);
+
+    /*
+     * step the Clock up from 400KHz to 25MHz
+     * this obviously needs PLL because we only have 24MHz supplied externally
+     * the math is:
+     * 600 MHz ÷ 1 ÷ 12 = 50 MHz (plus the :2 internally)
+     * */
+    io_clearsetbits_le32(addr,
+                         (0x7u << 24) | (0x3u << 8) | (0xfu << 0), // clear: source, N, M
+                         (0x1u << 24) | (0x0u << 8) | (11u << 0)); // set:   PLL_PERI(1X) 600 MHz, ÷1, ÷12
+
+    io_setbits_le32(addr, 1u << 31);
+    io_setbits_le32((uintptr_t)&reg->clock_ctrl, SMHC_CLOCK_CARD_ON);
+    if (update_clock() != 0) {
+        return 1;
+    }
+
+    return 0;
+}

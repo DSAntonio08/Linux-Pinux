@@ -5,6 +5,7 @@
  *   smhc_init()        controller on
  *   smhc_send_cmd()    send one command, get the answer
  *   smhc_read_block()  read one 512-byte block
+ *   smhc_set_clock()   card clock 400 kHz -> 25 MHz
  *
  * sd_init(): brings the card from power-on into "transfer" state (ready to read)
  *   1. smhc_init(): controller on, 400 kHz card clock
@@ -15,12 +16,16 @@
  *   6. CMD2: card ID
  *   7. CMD3: card gives itself an address (RCA)
  *   8. CMD7 with the RCA: select the card (transfer state)
+ *   9. smhc_set_clock(): card clock 400 kHz -> 25 MHz (identification must run at <= 400 kHz, reading may go up to 25 MHz)
  *
- * sd_read_block(): reads one 512-byte sector; only SDHC/SDXC, so the sector number is the address, passed straight to smhc_read_block()
+ * sd_read_blocks(): reads count 512-byte sectors from start_sector on, one smhc_read_block() per sector
+ *   sector start_sector + i lands at buf + i * 128 (buf is uint32_t, 128 words = 512 bytes), buf must hold count * 128 words
+ *   only SDHC/SDXC, so the sector number is the address
+ *   one CMD17 per sector for now, CMD18 (multi-block) would only change this function
  *
  * Both return 0 on success, 1 on error, errors are printed over UART
- * Still missing: switch to 25 MHz after sd_init
- * Not in the Makefile yet, not tested on hardware
+ * Works on the board at 400 kHz (2026-11-18): sector 16 read back with "eGON.BT0", seen via the LED, UART messages not seen yet
+ * Step 9 (25 MHz) and sd_read_blocks with count > 1 NOT TESTED ON THE BOARD YET
  *
  * Source: SD Physical Layer Simplified Specification (sdcard.org), command table in docs/bootloader_plan.md section 5
  */
@@ -128,7 +133,24 @@ int sd_init(void) {
         return 1;
     }
 
+    // set faster clock speed
+    if (smhc_set_clock() != 0) {
+        uart_puts("SD init failed: couldn't set faster clock speed\r\n");
+        return 1;
+    }
+
     return 0;
 }
 
-int sd_read_block(uint32_t sector, uint32_t *buf) { return smhc_read_block(sector, buf); }
+int sd_read_blocks(uint32_t start_sector, uint32_t count, uint32_t *buf) {
+    for (uint32_t i = 0; i < count; i++) {
+        if (smhc_read_block(start_sector + i, buf + (i * 128)) != 0) {
+            uart_puts("SD read failed at sector 0x");
+            uart_puthex32(start_sector + i);
+            uart_puts("\r\n");
+            return 1;
+        }
+    }
+
+    return 0;
+}

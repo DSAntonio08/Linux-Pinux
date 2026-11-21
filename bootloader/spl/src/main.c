@@ -11,7 +11,11 @@
  *   5. read following 'actual' Bootloader into DRAM
  *   6. jump to actual Bootloader
  *
- * Right now: only 1-4 (3 & 4 not tested yet as I don't have any UART female-Header... arrives around 25th November )
+ * Right now: 1-4, plus an SD test instead of 5 (sd_init, read sector 16 with sd_read_blocks, check "eGON.BT0")
+ *   4 works on the board (2026-11-18): dram_init() incl. its write/read test returns 0, seen via the LED
+ *   SD test passed on the board at 400 kHz (2026-11-18). sd_init now ends at 25 MHz: NOT TESTED ON THE BOARD YET
+ *   3 not tested yet, as I don't have any UART female-Header... arrives around 25th November
+ *   LED: blinks every 100 ms = DRAM + SD init + SD test OK, dark = something failed (UART will say what)
  */
 
 #include "../include/clock.h"
@@ -33,7 +37,7 @@ int main(void) {
     // dump_clock_state();
 
     gpio_set_func(PORT_G, 13, 1); // PG13 -> output
-                                  //
+
     if (dram_init() != 0) {
         uart_puts("DRAM init failed: stopping\r\n");
         gpio_write(PORT_G, 13, 0);
@@ -41,7 +45,12 @@ int main(void) {
     }
     uart_puts("DRAM init OK\r\n");
 
-    sd_init();
+    if (sd_init() != 0) {
+        uart_puts("SD init failed: stopping\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
+    }
+    uart_puts("SD init OK\r\n");
 
     /*
      * SD test: sector 16 * 512 bytes = 8192 = 8 KiB, exactly where the SPL (this program) starts on the card
@@ -55,7 +64,11 @@ int main(void) {
      * little endian: the first byte sits in the lowest bits of the word, so read each group backwards:
      *   buf[1] = 0x4E4F4765 ("NOGe"), buf[2] = 0x3054422E ("0TB.")
      */
-    sd_read_block(16, buf);
+    if (sd_read_blocks(16, 1, buf) != 0) {
+        uart_puts("SD test failed: could not read sector 16\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
+    }
 
     if (buf[1] != 0x4E4F4765) {
         uart_puts("SD test failed: sector 16, bytes 4-7 are not \"eGON\"\r\n");

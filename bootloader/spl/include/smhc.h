@@ -74,3 +74,4 @@
 int smhc_init(void);
 int smhc_send_cmd(uint32_t index, uint32_t arg, uint32_t flags, uint32_t *response);
 int smhc_read_block(uint32_t sector, uint32_t *buf);
+int smhc_set_clock(void);
