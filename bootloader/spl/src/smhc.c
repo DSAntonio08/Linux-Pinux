@@ -37,8 +37,8 @@
  *   used by smhc_init and twice by smhc_set_clock
  *
  * All four return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
- * Works on the board at 400 kHz (2026-11-18): init, send_cmd and read_block ran in the sector 16 test (see sd.c), UART messages not seen yet
- * smhc_set_clock (25 MHz) NOT TESTED ON THE BOARD YET
+ * Works on the board (2026-11-24): all four ran in the sector 16 test (see sd.c), read_block already at 25 MHz
+ * Error messages not seen yet (nothing failed so far)
  */
 
 #include "../include/smhc.h"

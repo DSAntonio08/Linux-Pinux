@@ -12,10 +12,12 @@
  *   6. jump to actual Bootloader
  *
  * Right now: 1-4, plus an SD test instead of 5 (sd_init, read sector 16 with sd_read_blocks, check "eGON.BT0")
+ *   and a multi-sector test (test B, docs/phase_f.md): read 1024 sectors from 2048 into DRAM, check every word
  *   4 works on the board (2026-11-18): dram_init() incl. its write/read test returns 0, seen via the LED
- *   SD test passed on the board at 400 kHz (2026-11-18). sd_init now ends at 25 MHz: NOT TESTED ON THE BOARD YET
- *   3 not tested yet, as I don't have any UART female-Header... arrives around 25th November
- *   LED: blinks every 100 ms = DRAM + SD init + SD test OK, dark = something failed (UART will say what)
+ *   SD test passed on the board at 25 MHz (2026-11-24): "Hello World" comes after it, every fail path returns 1 before
+ *   3 works on the board (2026-11-24): "Hello World" seen in the terminal
+ *   multi-sector test passed on the board (2026-11-24), seen via the LED
+ *   LED: blinks every 100 ms = DRAM + SD init + SD test + multi-sector test OK, dark = something failed (UART will say what)
  */
 
 #include "../include/clock.h"
@@ -28,6 +30,7 @@
 #include "../include/uart.h"
 
 static void dump_clock_state(void);
+static int multi_sector_test(void);
 
 int main(void) {
     uint32_t buf[128]; // exactly one sector
@@ -84,7 +87,12 @@ int main(void) {
     }
     uart_puts("SD test OK: sector 16 holds the SPL header \"eGON.BT0\"\r\n");
 
-    // Delete later
+    if (multi_sector_test() != 0) {
+        uart_puts("SD test failed: multi sector read wasn't succesful\r\n");
+        return 1;
+    }
+
+    // Works, uart tested - could delete
     while (1) {
         // uart_puts("Hello World\r\n");
         gpio_write(PORT_G, 13, 1); // PG13 high (3V3), LED on
@@ -92,6 +100,8 @@ int main(void) {
         gpio_write(PORT_G, 13, 0); // PG13 low (0V), LED off
         timer_udelay(100000);
     }
+
+    return 0;
 }
 
 /*
@@ -124,4 +134,47 @@ static void dump_clock_state(void) {
             uart_puts("\r\n");
         }
     }
+}
+
+/*
+ * Multi-sector test (test B, docs/phase_f.md section 0), temporary
+ * pattern.bin is on the card at 1 MiB = sector 2048: 1024 sectors, word w of sector s = (s << 16) | w
+ * read all of it with ONE sd_read_blocks call into DRAM, then check every word
+ */
+static int multi_sector_test(void) {
+    uint32_t *dram = (uint32_t *)0x40000000;
+
+    for (uint32_t i = 0; i < 1024 * 128; i++) {
+        dram[i] = 0xFFFFFFFF; // never in the pattern, so a word the read didn't write shows up
+    }
+
+    uart_puts("reading 1024 sectors...\r\n");
+    if (sd_read_blocks(2048, 1024, dram) != 0) {
+        uart_puts("multi-sector test failed: could not read\r\n");
+        gpio_write(PORT_G, 13, 0);
+        return 1;
+    }
+
+    for (uint32_t s = 0; s < 1024; s++) {
+        for (uint32_t w = 0; w < 128; w++) {
+            uint32_t expected = (s << 16) | w;
+            uint32_t got = dram[s * 128 + w]; // sector s starts at word s * 128
+
+            if (got != expected) {
+                uart_puts("pattern mismatch: sector 0x");
+                uart_puthex32(s);
+                uart_puts(", word 0x");
+                uart_puthex32(w);
+                uart_puts(": got 0x");
+                uart_puthex32(got);
+                uart_puts(", expected 0x");
+                uart_puthex32(expected);
+                uart_puts("\r\n");
+                gpio_write(PORT_G, 13, 0);
+                return 1;
+            }
+        }
+    }
+    uart_puts("multi-sector test OK: 1024 sectors\r\n");
+    return 0;
 }

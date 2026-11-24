@@ -24,8 +24,10 @@
  *   one CMD17 per sector for now, CMD18 (multi-block) would only change this function
  *
  * Both return 0 on success, 1 on error, errors are printed over UART
- * Works on the board at 400 kHz (2026-11-18): sector 16 read back with "eGON.BT0", seen via the LED, UART messages not seen yet
- * Step 9 (25 MHz) and sd_read_blocks with count > 1 NOT TESTED ON THE BOARD YET
+ * Works on the board (2026-11-24): sd_init incl. step 9 (25 MHz), then sector 16 read back with "eGON.BT0",
+ *   proven by "Hello World" in main.c, which only prints after the SD test. Error messages not seen yet (nothing failed so far)
+ * sd_read_blocks with count > 1 works on the board too (2026-11-24): 1024 sectors from sector 2048 in one call,
+ *   every word checked against a test pattern (test B in main.c, seen via the LED)
  *
  * Source: SD Physical Layer Simplified Specification (sdcard.org), command table in docs/bootloader_plan.md section 5
  */

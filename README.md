@@ -30,10 +30,10 @@ The OlivePi PCB has arrived and is assembled. I measured every supply voltage an
 My own SPL (Secondary Program Loader, the first code that runs after the chip's Boot ROM) now runs on the board:
 
 - The Boot ROM loads my image from microSD (eGON.BT0 header from `start.S`, checksum and padding from `tools/mkboot0`).
-- A UART1 driver (PG6/PG7, 115200 8N1) is written, but not tested on the board yet: the connector for the serial adapter is still on its way.
+- A UART1 driver (PG6/PG7, 115200 8N1). Tested on the board on 24 November 2026: "Hello World" shows up in the terminal.
 - A small GPIO driver for ports B–G (`gpio_set_func`, `gpio_read`, `gpio_write`, pull-ups/downs) blinks an LED on PG13.
 - The DRAM init (ported from awboot) finishes without errors.
-- My own microSD driver (`smhc.c` for the controller, `sd.c` for the card) reads sectors from the card. Tested at 400 kHz by reading back the SPL's own `eGON.BT0` header from sector 16. After the card setup it now switches to 25 MHz and can read several sectors in one call (`sd_read_blocks`), both written but not tested on the board yet.
+- My own microSD driver (`smhc.c` for the controller, `sd.c` for the card) reads sectors from the card. Tested at 400 kHz by reading back the SPL's own `eGON.BT0` header from sector 16. After the card setup it switches to 25 MHz, tested on the board on 24 November 2026 (same sector 16 check: "Hello World" over UART only prints after it passed). Reading several sectors in one call (`sd_read_blocks` with count > 1) works too: on 24 November 2026 it read 1024 sectors (512 KiB) of a test pattern in one call, every word correct.
 
 The first milestone, running my own code from microSD and getting a recognizable message over UART, is reached.
 
