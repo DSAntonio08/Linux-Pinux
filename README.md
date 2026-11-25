@@ -37,6 +37,12 @@ My own SPL (Secondary Program Loader, the first code that runs after the chip's 
 
 The first milestone, running my own code from microSD and getting a recognizable message over UART, is reached.
 
+## Code map
+
+![Code map: build on the Mac, Boot ROM, SPL, planned bootloader and Linux](docs/code_map.excalidraw.svg)
+
+Source: [`docs/code_map.mmd`](docs/code_map.mmd) (Mermaid, imported into Excalidraw), state 2026-11-25.
+
 ## Building
 
 The SPL is built with the Arm GNU toolchain (`arm-none-eabi-gcc`):

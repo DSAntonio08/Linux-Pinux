@@ -1,0 +1,164 @@
+flowchart TD
+
+    %% code_map.mmd - the whole project on one page, made for pasting into Excalidraw (Mermaid import)
+    %% state: 2026-11-25, branch wip/bootloader (b50e008), UART output seen with the logic analyzer
+    %% Excalidraw rules: only box and rounded-box shapes, colors as one "style" line per node
+    %% (Excalidraw ignores classDef / class), comments only after the "flowchart" line
+
+    %% ---------------- LEGEND ----------------
+    subgraph legend["LEGEND"]
+        direction LR
+        lg_mac["grey<br/>runs on the Mac"]
+        lg_rom["purple<br/>Boot ROM, inside the chip,<br/>not my code"]
+        lg_flow["blue<br/>program flow:<br/>start.S and main.c"]
+        lg_drv["green<br/>driver file,<br/>does the hardware work"]
+        lg_data("yellow<br/>where data is stored")
+        lg_plan["dashed border<br/>planned, not written yet"]
+        lg_fail("red<br/>error end")
+        lg_a1["step A"] ==>|"thick arrow = then, next step in time"| lg_a2["step B"]
+        lg_b1["file A"] -->|"thin arrow = calls / reads / writes"| lg_b2["file B"]
+        lg_c1["now"] -.->|"dotted arrow = planned, not written yet"| lg_c2["later"]
+    end
+
+    %% ---------------- 1. MAC ----------------
+    subgraph mac["1. ON THE MAC: build and flash"]
+        direction LR
+        make["make<br/>start.S + all .c files<br/>-> spl.bin"]
+        mkboot0["tools/mkboot0.c<br/>adds eGON length + checksum,<br/>pads to 512 bytes"]
+        dd["dd<br/>writes spl-boot.bin<br/>onto the card at 8 KiB"]
+        make ==> mkboot0 ==> dd
+    end
+
+    sigrok["ON THE MAC: read the output<br/>logic analyzer, CH1 on PG6 + GND<br/>sigrok-cli decodes 115200 8N1 to text"]
+
+    card("microSD card<br/>8 KiB: SPL<br/>1 MiB: bootloader, later<br/>1.5 MiB: device tree, later<br/>2 MiB: Linux zImage, later")
+
+    power("POWER ON")
+
+    %% ---------------- 2. BOOT ROM ----------------
+    brom["2. BOOT ROM, inside the T113<br/>finds the SPL on the card,<br/>checks eGON magic + checksum,<br/>copies it into SRAM at 0x20000,<br/>jumps there"]
+
+    %% ---------------- 3. SPL ----------------
+    subgraph spl["3. SPL: my code, runs in SRAM, max 32 KiB"]
+        direction TB
+
+        start["start.S<br/>CPU setup, stack,<br/>clear .bss, call main()"]
+
+        subgraph mainc["main.c: decides WHAT happens in WHICH order"]
+            direction TB
+            s1["step 1: UART on<br/>so the board can print text"]
+            s2["step 2: LED pin PG13 = output"]
+            s3["step 3: DRAM on<br/>128 MB at 0x40000000"]
+            s4["step 4: SD card on<br/>ready to read, 25 MHz"]
+            s5["step 5: SD tests, temporary<br/>sector 16 holds eGON.BT0?<br/>1024 sectors into DRAM correct?"]
+            s6("LED blinks every 100 ms<br/>= everything worked")
+            s7["later step 5: load bootloader<br/>card 1 MiB -> DRAM 0x47000000,<br/>check magic + checksum, jump"]
+            s1 ==> s2 ==> s3 ==> s4 ==> s5 ==> s6
+            s4 -.->|"replaces the tests"| s7
+        end
+
+        subgraph drivers["drivers: do HOW, talk to the hardware"]
+            direction TB
+            uart["uart.c<br/>sends text over UART1, PG6/PG7<br/>uart_init, uart_puts, uart_puthex32"]
+            dram["dram.c<br/>brings up the DDR3 memory<br/>dram_init, includes a memory test"]
+            sd["sd.c: card layer<br/>speaks the SD protocol, CMD0..CMD7<br/>sd_init, sd_read_blocks"]
+            smhc["smhc.c: controller layer<br/>pokes the SD controller registers<br/>smhc_init, smhc_send_cmd,<br/>smhc_read_block, smhc_set_clock"]
+            clock["clock.c<br/>turns clocks and PLLs on<br/>clock_init_uart, clock_init_smhc,<br/>clock_enable_pll, clock_set_pll_ddr"]
+            helpers["helpers, used by everyone<br/>timer.c: wait N microseconds<br/>gpio.h: set pin function / level<br/>io.h: read / write a register"]
+        end
+    end
+
+    fail("STOP<br/>print error over UART, LED off,<br/>start.S hangs forever")
+
+    %% ---------------- 4. BOOTLOADER ----------------
+    subgraph bl["4. BOOTLOADER: planned, runs in DRAM at 0x47000000"]
+        direction TB
+        b1["own start.S<br/>no clock or DRAM init again,<br/>the SPL already did that"]
+        b2["sd_init again, same sd.c,<br/>load device tree + zImage<br/>from fixed card sectors into DRAM"]
+        b3["CPU timer = 24 MHz,<br/>r0 = 0, r1 = 0xFFFFFFFF, r2 = DTB address,<br/>jump to Linux"]
+        b1 -.-> b2 -.-> b3
+    end
+
+    linux("5. LINUX KERNEL: planned<br/>first messages over UART, earlycon")
+
+    %% ---------------- ORDER IN TIME ----------------
+    dd -->|"writes"| card
+    power ==> brom
+    card -->|"read by"| brom
+    brom ==> start ==> s1
+
+    %% ---------------- WHO CALLS WHOM ----------------
+    s1 --> uart
+    s3 --> dram
+    s4 --> sd
+    s5 --> sd
+    sd -->|"every command goes through"| smhc
+    uart --> clock
+    dram --> clock
+    smhc --> clock
+    uart -->|"PG6 TX"| sigrok
+
+    %% ---------------- ERRORS ----------------
+    s3 -->|"fails"| fail
+    s4 -->|"fails"| fail
+    s5 -->|"fails"| fail
+
+    %% ---------------- PLANNED ----------------
+    s7 -.->|"jump"| b1
+    b3 -.-> linux
+
+    %% ---------------- COLORS ----------------
+    %% grey, Mac
+    style lg_mac fill:#e9ecef,stroke:#495057,color:#212529
+    style make fill:#e9ecef,stroke:#495057,color:#212529
+    style mkboot0 fill:#e9ecef,stroke:#495057,color:#212529
+    style dd fill:#e9ecef,stroke:#495057,color:#212529
+    style sigrok fill:#e9ecef,stroke:#495057,color:#212529
+
+    %% purple, Boot ROM
+    style lg_rom fill:#e5dbff,stroke:#6741d9,color:#2b1a66
+    style brom fill:#e5dbff,stroke:#6741d9,color:#2b1a66
+
+    %% blue, program flow
+    style lg_flow fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style start fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s1 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s2 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s3 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s4 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s5 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+    style s6 fill:#d0ebff,stroke:#1971c2,color:#0b3d6b
+
+    %% green, drivers
+    style lg_drv fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style uart fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style dram fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style sd fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style smhc fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style clock fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+    style helpers fill:#d3f9d8,stroke:#2f9e44,color:#14431f
+
+    %% yellow, data
+    style lg_data fill:#fff3bf,stroke:#f08c00,color:#5c3c00
+    style card fill:#fff3bf,stroke:#f08c00,color:#5c3c00
+
+    %% dashed, planned
+    style lg_plan fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+    style s7 fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+    style b1 fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+    style b2 fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+    style b3 fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+    style linux fill:#ffffff,stroke:#868e96,stroke-dasharray:5 5,color:#495057
+
+    %% red, error
+    style lg_fail fill:#ffe3e3,stroke:#e03131,color:#6b1010
+    style fail fill:#ffe3e3,stroke:#e03131,color:#6b1010
+
+    %% white, plain
+    style power fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_a1 fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_a2 fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_b1 fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_b2 fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_c1 fill:#ffffff,stroke:#343a40,color:#212529
+    style lg_c2 fill:#ffffff,stroke:#343a40,color:#212529
