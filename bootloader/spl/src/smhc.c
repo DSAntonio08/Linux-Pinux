@@ -38,6 +38,7 @@
  *
  * All four return 0 on success, 1 if a step fails (every wait loop has a timeout), errors are printed over UART
  * Works on the board (2026-11-24): all four ran in the sector 16 test (see sd.c), read_block already at 25 MHz
+ * Seen over UART too (2026-11-25): sd.c's OK messages for both tests come out
  * Error messages not seen yet (nothing failed so far)
  */
 

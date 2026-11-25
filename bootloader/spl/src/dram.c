@@ -13,6 +13,8 @@
  *   5. dram_simple_wr_test(): writes a pattern and reads it back
  *
  * Returns 0 on success, 1 if a step fails (every wait loop has a timeout), progress is printed over UART
+ * Works on the board (2026-11-18, LED), output seen over UART (2026-11-25): ZQ value 0x2E, DDR efuse 0xA,
+ *   chip id efuse 0x6000, "DRAM: simple test SUCCESS!"
  */
 
 #include "../include/dram.h"

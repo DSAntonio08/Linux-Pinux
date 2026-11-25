@@ -17,6 +17,8 @@
  *   SD test passed on the board at 25 MHz (2026-11-24): "Hello World" comes after it, every fail path returns 1 before
  *   3 works on the board (2026-11-24): "Hello World" seen in the terminal
  *   multi-sector test passed on the board (2026-11-24), seen via the LED
+ *   whole UART output seen (2026-11-25, logic analyzer on PG6 + sigrok-cli): every step prints its OK line,
+ *     from dram_init's "ZQ value" to "multi-sector test OK: 1024 sectors". Fail messages not seen yet (nothing failed)
  *   LED: blinks every 100 ms = DRAM + SD init + SD test + multi-sector test OK, dark = something failed (UART will say what)
  */
 

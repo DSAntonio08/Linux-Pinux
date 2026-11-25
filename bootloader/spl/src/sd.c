@@ -28,6 +28,7 @@
  *   proven by "Hello World" in main.c, which only prints after the SD test. Error messages not seen yet (nothing failed so far)
  * sd_read_blocks with count > 1 works on the board too (2026-11-24): 1024 sectors from sector 2048 in one call,
  *   every word checked against a test pattern (test B in main.c, seen via the LED)
+ * Seen over UART too (2026-11-25): "SD init OK", both sector 16 checks, "multi-sector test OK: 1024 sectors"
  *
  * Source: SD Physical Layer Simplified Specification (sdcard.org), command table in docs/bootloader_plan.md section 5
  */

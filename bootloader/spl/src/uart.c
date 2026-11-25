@@ -14,7 +14,12 @@
  * uart_puts():     sends a string char by char
  * uart_puthex32(): sends a 32-bit value as 8 hex digits
  *
+ * Works on the board (2026-11-25): whole SPL output read with a logic analyzer, no wrong characters
+ *
  * Terminal: screen /dev/tty.usbserial-XXXX 115200
+ * Logic analyzer (CH1 = PG6, GND = GND, CLK not needed), receive only:
+ *   sigrok-cli -d fx2lafw --config samplerate=1m --time 10s -C D0 -P uart:tx=D0:baudrate=115200:format=ascii -A uart=tx-data
+ *   start it first, then reset the board
  */
 
 #include "../include/uart.h"
